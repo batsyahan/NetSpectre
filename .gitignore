@@ -1,2 +1,3 @@
 target/
 ml/data/raw/
+ml/.venv/
