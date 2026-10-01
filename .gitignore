@@ -10,3 +10,5 @@ ml/models/multiclass_xgb40*
 ml/*.txt
 ml/__pycache__/
 __pycache__/
+ml/*.bak
+core/src/main.rs.v*
