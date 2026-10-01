@@ -4,6 +4,13 @@ use std::env;
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 
+#[allow(dead_code)]
+mod pb {
+    tonic::include_proto!("netspectre.v1");
+}
+#[allow(unused_imports)]
+use pb::inference_client::InferenceClient;
+
 struct Pkt {
     src: Ipv4Addr,
     dst: Ipv4Addr,
@@ -224,16 +231,89 @@ impl Flow {
     }
 }
 
+static TX: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<pb::FlowFeatures>> =
+    std::sync::OnceLock::new();
+
 fn emit(f: &Flow) {
     let (s, d) = (f.src.unwrap(), f.dst.unwrap());
-    let vals: Vec<String> = f.features().iter().map(|x| x.1.to_string()).collect();
-    println!("{}:{}>{}:{},{}", s.0, s.1, d.0, d.1, vals.join(","));
+    let req = pb::FlowFeatures {
+        src_ip: s.0.to_string(),
+        src_port: s.1 as u32,
+        dst_ip: d.0.to_string(),
+        dst_port: d.1 as u32,
+        protocol: f.proto as u32,
+        timestamp_us: f.last_us,
+        features: f.features().iter().map(|x| x.1 as f32).collect(),
+    };
+    if let Some(tx) = TX.get() {
+        let _ = tx.send(req);
+    }
+}
+
+fn start_worker(addr: String) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<pb::FlowFeatures>();
+    TX.set(tx).ok();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        rt.block_on(run_client(addr, rx));
+    });
+}
+
+async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<pb::FlowFeatures>) {
+    use std::collections::{HashMap, HashSet};
+    let mut client = loop {
+        match InferenceClient::connect(addr.clone()).await {
+            Ok(c) => break c,
+            Err(e) => {
+                eprintln!("waiting for ML server at {addr}: {e}");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        }
+    };
+    eprintln!("connected to ML server at {addr}");
+    let verbose = env::var("NS_VERBOSE").is_ok();
+    let mut hist: HashMap<(String, String), Vec<(Instant, u32, f32)>> = HashMap::new();
+    let mut last_alert: HashMap<(String, String), Instant> = HashMap::new();
+
+    while let Some(req) = rx.recv().await {
+        let (src, dport) = (req.src_ip.clone(), req.dst_port);
+        let resp = match client.classify(req).await {
+            Ok(r) => r.into_inner(),
+            Err(e) => {
+                eprintln!("classify error: {e}");
+                continue;
+            }
+        };
+        if resp.label == "BENIGN" {
+            if verbose {
+                println!("ok    {src} -> port {dport}  BENIGN ({:.2})", resp.confidence);
+            }
+            continue;
+        }
+        let key = (src.clone(), resp.label.clone());
+        let now = Instant::now();
+        let h = hist.entry(key.clone()).or_default();
+        h.retain(|x| now.duration_since(x.0) <= Duration::from_secs(10));
+        h.push((now, dport, resp.confidence));
+        let (count, unit, need) = if resp.label == "PortScan" {
+            (h.iter().map(|x| x.1).collect::<HashSet<_>>().len(), "ports", 10)
+        } else {
+            (h.len(), "flows", 3)
+        };
+        let quiet = last_alert.get(&key).map_or(true, |t| now.duration_since(*t) > Duration::from_secs(30));
+        if count >= need && quiet {
+            last_alert.insert(key, now);
+            let avg = h.iter().map(|x| x.2).sum::<f32>() / h.len() as f32;
+            println!("ALERT {src} -> {}: {count} {unit} in 10s (avg confidence {avg:.2})", resp.label);
+        }
+    }
 }
 
 fn main() {
     let iface = env::args().nth(1).unwrap_or_else(|| "eth0".to_string());
     let filter = env::args().nth(2).filter(|f| f != "-");
     let idle_us: u64 = env::args().nth(3).and_then(|s| s.parse::<u64>().ok()).unwrap_or(5) * 1_000_000;
+    start_worker(env::var("NS_ML_ADDR").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string()));
 
     let dev = Device::list()
         .expect("failed to list devices")
