@@ -224,11 +224,16 @@ impl Flow {
     }
 }
 
+fn emit(f: &Flow) {
+    let (s, d) = (f.src.unwrap(), f.dst.unwrap());
+    let vals: Vec<String> = f.features().iter().map(|x| x.1.to_string()).collect();
+    println!("{}:{}>{}:{},{}", s.0, s.1, d.0, d.1, vals.join(","));
+}
+
 fn main() {
     let iface = env::args().nth(1).unwrap_or_else(|| "eth0".to_string());
-    let count: usize = env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(50);
-    let filter = env::args().nth(3);
-    let secs: u64 = env::args().nth(4).and_then(|s| s.parse().ok()).unwrap_or(10);
+    let filter = env::args().nth(2).filter(|f| f != "-");
+    let idle_us: u64 = env::args().nth(3).and_then(|s| s.parse::<u64>().ok()).unwrap_or(5) * 1_000_000;
 
     let dev = Device::list()
         .expect("failed to list devices")
@@ -250,62 +255,55 @@ fn main() {
         cap.filter(&f, true).expect("bad filter");
     }
 
-    println!("Capturing up to {count} packets or {secs}s on {iface}...");
+    eprintln!("monitoring {iface} (flows close on FIN/RST or after {}s idle)...", idle_us / 1_000_000);
     let mut flows: HashMap<Key, Flow> = HashMap::new();
-    let mut seen = 0;
-    let started = Instant::now();
-    while seen < count && started.elapsed() < Duration::from_secs(secs) {
+    let mut last_sweep = Instant::now();
+    let mut closed: HashMap<Key, Instant> = HashMap::new();
+    loop {
         match cap.next_packet() {
             Ok(pk) => {
                 let ts = pk.header.ts.tv_sec as u64 * 1_000_000 + pk.header.ts.tv_usec as u64;
                 if let Some(p) = parse(pk.data, ts) {
-                    seen += 1;
-                    flows.entry(key_of(&p)).or_insert_with(|| Flow::new(&p)).update(&p);
+                    let k = key_of(&p);
+                    if closed.get(&k).map_or(false, |t| t.elapsed() < Duration::from_secs(10)) {
+                        continue;
+                    }
+                    let done = {
+                        let f = flows.entry(k).or_insert_with(|| Flow::new(&p));
+                        f.update(&p);
+                        f.fin >= 2 || f.rst > 0
+                    };
+                    if done {
+                        if let Some(f) = flows.remove(&k) {
+                            emit(&f);
+                            closed.insert(k, Instant::now());
+                        }
+                    }
                 }
             }
-            Err(pcap::Error::TimeoutExpired) => {
-                std::thread::sleep(Duration::from_millis(2));
-                continue;
-            }
+            Err(pcap::Error::TimeoutExpired) => std::thread::sleep(Duration::from_millis(2)),
             Err(e) => {
                 eprintln!("capture error: {e}");
                 break;
             }
         }
-    }
-
-    println!("\n{seen} packets -> {} flows\n", flows.len());
-    let mut list: Vec<&Flow> = flows.values().collect();
-    list.sort_by_key(|f| f.start_us);
-    {
-        let mut csv = String::new();
-        for (i, f) in list.iter().enumerate() {
-            let feats = f.features();
-            if i == 0 {
-                csv.push_str(&feats.iter().map(|x| x.0).collect::<Vec<_>>().join(","));
-                csv.push('\n');
+        if last_sweep.elapsed() >= Duration::from_secs(1) {
+            last_sweep = Instant::now();
+            closed.retain(|_, t| t.elapsed() < Duration::from_secs(10));
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64;
+            let expired: Vec<Key> = flows
+                .iter()
+                .filter(|(_, f)| now.saturating_sub(f.last_us) > idle_us)
+                .map(|(k, _)| *k)
+                .collect();
+            for k in expired {
+                if let Some(f) = flows.remove(&k) {
+                    emit(&f);
+                }
             }
-            csv.push_str(&feats.iter().map(|x| x.1.to_string()).collect::<Vec<_>>().join(","));
-            csv.push('\n');
         }
-        std::fs::write("/tmp/flows.csv", csv).expect("write csv");
-        println!("wrote {} flows to /tmp/flows.csv", list.len());
-    }
-    list.truncate(4);
-    if list.is_empty() {
-        return;
-    }
-    let cols: Vec<Vec<(&str, f64)>> = list.iter().map(|f| f.features()).collect();
-    print!("{:<30}", "feature");
-    for i in 0..cols.len() {
-        print!("{:>14}", format!("flow{}", i + 1));
-    }
-    println!();
-    for row in 0..cols[0].len() {
-        print!("{:<30}", cols[0][row].0);
-        for c in &cols {
-            print!("{:>14.2}", c[row].1);
-        }
-        println!();
     }
 }
