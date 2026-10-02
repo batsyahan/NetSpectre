@@ -15,3 +15,5 @@ core/src/main.rs.v*
 data/*.db
 ml/catboost_info/
 ml/models/*.cbm
+dashboard/node_modules/
+dashboard/dist/
