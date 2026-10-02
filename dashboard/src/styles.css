@@ -47,3 +47,23 @@ tr.dim td.actions { opacity: 1; }
   max-width: 420px;
   line-height: 1.4;
 }
+
+.filters {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin: 8px 0 16px;
+  font-size: 13px;
+  color: #8b95a7;
+}
+.filters select {
+  margin-left: 6px;
+  background: #161b22;
+  color: inherit;
+  border: 1px solid #2a313c;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.filters .shown {
+  margin-left: auto;
+}
