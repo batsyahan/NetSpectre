@@ -8,6 +8,7 @@ interface Alert {
   flow_count: number;
   avg_confidence: number;
   status: string;
+  explanation?: { feature: string; text: string; weight: number }[];
 }
 
 const SEVERITY: Record<string, "critical" | "high" | "medium"> = {
@@ -123,7 +124,14 @@ export default function App() {
                   <td>
                     <span className={`sev ${severityOf(a.label)}`}>{severityOf(a.label)}</span>
                   </td>
-                  <td>{a.label}</td>
+                  <td>
+                    {a.label}
+                    {a.explanation && a.explanation.length > 0 && (
+                      <div className="why">
+                        Why: {a.explanation.map((r) => `${r.text} (${Math.round(r.weight)}%)`).join(", ")}
+                      </div>
+                    )}
+                  </td>
                   <td className="mono">{a.src_ip}</td>
                   <td>{a.flow_count}</td>
                   <td>{Math.round(a.avg_confidence * 100)}%</td>

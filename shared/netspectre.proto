@@ -14,10 +14,18 @@ message FlowFeatures {
   repeated float features = 7;
 }
 
+// One of the top features behind an attack verdict (TreeSHAP).
+message Reason {
+  string feature = 1;           // model feature name
+  string text = 2;              // plain-English phrase with the observed value
+  float weight = 3;             // share among the top reasons, 0..100
+}
+
 // The model's verdict for one flow.
 message Classification {
   string label = 1;             // e.g. "BENIGN", "PortScan"
   float confidence = 2;         // probability of the predicted label, 0..1
+  repeated Reason reasons = 3;  // top 3 reasons, only for attack verdicts
 }
 
 // A grouped incident (e.g. one source scanning many ports).
