@@ -278,7 +278,13 @@ fn open_db() -> rusqlite::Connection {
             avg_confidence REAL NOT NULL,
             status TEXT NOT NULL DEFAULT 'new'
         );
-        CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(ts_utc);",
+        CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(ts_utc);
+        CREATE TABLE IF NOT EXISTS devices (
+            ip TEXT PRIMARY KEY,
+            first_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+            last_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+            flow_count INTEGER NOT NULL DEFAULT 0
+        );",
     )
     .expect("create schema");
     let has_col = db
@@ -369,12 +375,40 @@ async fn api_set_status(axum::Json(u): axum::Json<StatusUpdate>) -> axum::http::
     }
 }
 
+async fn api_devices() -> Result<axum::Json<Vec<serde_json::Value>>, axum::http::StatusCode> {
+    use axum::http::StatusCode;
+    let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
+    let db = rusqlite::Connection::open(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .prepare(
+            "SELECT d.ip, d.first_seen, d.last_seen, d.flow_count, \
+             (SELECT COUNT(*) FROM alerts a WHERE a.src_ip = d.ip) \
+             FROM devices d ORDER BY d.last_seen DESC",
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(serde_json::json!({
+                "ip": r.get::<_, String>(0)?,
+                "first_seen": r.get::<_, String>(1)?,
+                "last_seen": r.get::<_, String>(2)?,
+                "flow_count": r.get::<_, i64>(3)?,
+                "alert_count": r.get::<_, i64>(4)?,
+            }))
+        })
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(axum::Json(rows))
+}
+
 async fn run_api() {
     let _ = open_db(); // make sure the schema exists
     let app = axum::Router::new()
         .route("/api/health", axum::routing::get(api_health))
         .route("/api/alerts", axum::routing::get(api_alerts))
         .route("/api/alerts/status", axum::routing::post(api_set_status))
+        .route("/api/devices", axum::routing::get(api_devices))
         .layer(tower_http::cors::CorsLayer::permissive());
     let addr = env::var("NS_API_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind api address");
@@ -401,6 +435,13 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
 
     while let Some(req) = rx.recv().await {
         let (src, dport) = (req.src_ip.clone(), req.dst_port);
+        if let Err(e) = db.execute(
+            "INSERT INTO devices (ip, flow_count) VALUES (?1, 1) \
+             ON CONFLICT(ip) DO UPDATE SET last_seen = strftime('%Y-%m-%dT%H:%M:%SZ','now'), flow_count = flow_count + 1",
+            rusqlite::params![src],
+        ) {
+            eprintln!("db error (devices): {e}");
+        }
         let resp = match client.classify(req).await {
             Ok(r) => r.into_inner(),
             Err(e) => {

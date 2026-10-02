@@ -67,3 +67,8 @@ tr.dim td.actions { opacity: 1; }
 .filters .shown {
   margin-left: auto;
 }
+
+.alert-count {
+  color: #f87171;
+  font-weight: 600;
+}

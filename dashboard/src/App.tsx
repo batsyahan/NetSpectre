@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 
+interface Device {
+  ip: string;
+  first_seen: string;
+  last_seen: string;
+  flow_count: number;
+  alert_count: number;
+}
+
 interface Alert {
   id: number;
   ts_utc: string;
@@ -31,6 +39,7 @@ const severityOf = (label: string) => SEVERITY[label] ?? "medium";
 
 export default function App() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [devices, setDevices] = useState<Device[]>([]);
   const [online, setOnline] = useState(false);
   const [updated, setUpdated] = useState<Date | null>(null);
 
@@ -42,8 +51,11 @@ export default function App() {
         const a = await fetch("/api/alerts?limit=50");
         if (!h.ok || !a.ok) throw new Error("bad response");
         const rows: Alert[] = await a.json();
+        const dv = await fetch("/api/devices");
+        const devs: Device[] = dv.ok ? await dv.json() : [];
         if (!stop) {
           setAlerts(rows);
+          setDevices(devs);
           setOnline(true);
           setUpdated(new Date());
         }
@@ -103,6 +115,36 @@ export default function App() {
           <div className="k">Most common attack</div>
           <div className="v small">{top ? `${top[0]} (${top[1]})` : "—"}</div>
         </div>
+      </section>
+
+      <section className="panel">
+        <h2>Devices</h2>
+        {devices.length === 0 ? (
+          <p className="empty">No devices seen yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Device (IP)</th>
+                <th>First seen</th>
+                <th>Last seen</th>
+                <th>Flows</th>
+                <th>Alerts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {devices.map((d) => (
+                <tr key={d.ip}>
+                  <td className="mono">{d.ip}</td>
+                  <td>{fmt(d.first_seen)}</td>
+                  <td>{fmt(d.last_seen)}</td>
+                  <td>{d.flow_count}</td>
+                  <td className={d.alert_count > 0 ? "alert-count" : ""}>{d.alert_count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </section>
 
       <section className="panel">
