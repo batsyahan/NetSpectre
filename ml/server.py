@@ -14,6 +14,13 @@ import os
 ENSEMBLE = os.environ.get("NS_ENSEMBLE", "1") == "1"
 sess_x = ort.InferenceSession("models/multiclass_xgb35.onnx")
 sess_c = ort.InferenceSession("models/multiclass_cat35.onnx")
+import xgboost as xgb
+from explain import explain
+FEATURES = json.load(open("models/feature_cols_35.json"))
+_xgb = xgb.XGBClassifier()
+_xgb.load_model("models/multiclass_xgb35.json")
+booster = _xgb.get_booster()
+booster.predict(xgb.DMatrix(np.zeros((1, len(FEATURES)), dtype=np.float32)), pred_contribs=True)  # warm-up
 
 
 def probs(sess, x):
@@ -31,7 +38,11 @@ def classify(features):
     if ENSEMBLE:
         p = (p + probs(sess_c, x)) / 2
     i = int(np.argmax(p))
-    return pb.Classification(label=classes[i], confidence=float(p[i]))
+    out = pb.Classification(label=classes[i], confidence=float(p[i]))
+    if classes[i] != "BENIGN":
+        for name, text, w in explain(booster, x, i, FEATURES):
+            out.reasons.append(pb.Reason(feature=name, text=text, weight=w))
+    return out
 
 
 class Inference(pbg.InferenceServicer):

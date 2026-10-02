@@ -39,3 +39,11 @@ tr.dim td.actions { opacity: 1; }
 .actions { white-space: nowrap; }
 .actions button { background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; margin-right: 6px; font: inherit; font-size: 13px; cursor: pointer; }
 .actions button:hover { border-color: var(--muted); background: rgba(255, 255, 255, 0.05); }
+
+.why {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #8b95a7;
+  max-width: 420px;
+  line-height: 1.4;
+}

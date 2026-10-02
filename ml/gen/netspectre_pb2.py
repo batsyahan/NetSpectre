@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10netspectre.proto\x12\rnetspectre.v1\"\x8c\x01\n\x0c\x46lowFeatures\x12\x0e\n\x06src_ip\x18\x01 \x01(\t\x12\x10\n\x08src_port\x18\x02 \x01(\r\x12\x0e\n\x06\x64st_ip\x18\x03 \x01(\t\x12\x10\n\x08\x64st_port\x18\x04 \x01(\r\x12\x10\n\x08protocol\x18\x05 \x01(\r\x12\x14\n\x0ctimestamp_us\x18\x06 \x01(\x04\x12\x10\n\x08\x66\x65\x61tures\x18\x07 \x03(\x02\"3\n\x0e\x43lassification\x12\r\n\x05label\x18\x01 \x01(\t\x12\x12\n\nconfidence\x18\x02 \x01(\x02\"\x7f\n\x05\x41lert\x12\x0e\n\x06src_ip\x18\x01 \x01(\t\x12\r\n\x05label\x18\x02 \x01(\t\x12\x12\n\nflow_count\x18\x03 \x01(\r\x12\x16\n\x0e\x61vg_confidence\x18\x04 \x01(\x02\x12\x15\n\rfirst_seen_us\x18\x05 \x01(\x04\x12\x14\n\x0clast_seen_us\x18\x06 \x01(\x04\x32\xa5\x01\n\tInference\x12\x46\n\x08\x43lassify\x12\x1b.netspectre.v1.FlowFeatures\x1a\x1d.netspectre.v1.Classification\x12P\n\x0e\x43lassifyStream\x12\x1b.netspectre.v1.FlowFeatures\x1a\x1d.netspectre.v1.Classification(\x01\x30\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10netspectre.proto\x12\rnetspectre.v1\"\x8c\x01\n\x0c\x46lowFeatures\x12\x0e\n\x06src_ip\x18\x01 \x01(\t\x12\x10\n\x08src_port\x18\x02 \x01(\r\x12\x0e\n\x06\x64st_ip\x18\x03 \x01(\t\x12\x10\n\x08\x64st_port\x18\x04 \x01(\r\x12\x10\n\x08protocol\x18\x05 \x01(\r\x12\x14\n\x0ctimestamp_us\x18\x06 \x01(\x04\x12\x10\n\x08\x66\x65\x61tures\x18\x07 \x03(\x02\"7\n\x06Reason\x12\x0f\n\x07\x66\x65\x61ture\x18\x01 \x01(\t\x12\x0c\n\x04text\x18\x02 \x01(\t\x12\x0e\n\x06weight\x18\x03 \x01(\x02\"[\n\x0e\x43lassification\x12\r\n\x05label\x18\x01 \x01(\t\x12\x12\n\nconfidence\x18\x02 \x01(\x02\x12&\n\x07reasons\x18\x03 \x03(\x0b\x32\x15.netspectre.v1.Reason\"\x7f\n\x05\x41lert\x12\x0e\n\x06src_ip\x18\x01 \x01(\t\x12\r\n\x05label\x18\x02 \x01(\t\x12\x12\n\nflow_count\x18\x03 \x01(\r\x12\x16\n\x0e\x61vg_confidence\x18\x04 \x01(\x02\x12\x15\n\rfirst_seen_us\x18\x05 \x01(\x04\x12\x14\n\x0clast_seen_us\x18\x06 \x01(\x04\x32\xa5\x01\n\tInference\x12\x46\n\x08\x43lassify\x12\x1b.netspectre.v1.FlowFeatures\x1a\x1d.netspectre.v1.Classification\x12P\n\x0e\x43lassifyStream\x12\x1b.netspectre.v1.FlowFeatures\x1a\x1d.netspectre.v1.Classification(\x01\x30\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,10 +33,12 @@ if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_FLOWFEATURES']._serialized_start=36
   _globals['_FLOWFEATURES']._serialized_end=176
-  _globals['_CLASSIFICATION']._serialized_start=178
-  _globals['_CLASSIFICATION']._serialized_end=229
-  _globals['_ALERT']._serialized_start=231
-  _globals['_ALERT']._serialized_end=358
-  _globals['_INFERENCE']._serialized_start=361
-  _globals['_INFERENCE']._serialized_end=526
+  _globals['_REASON']._serialized_start=178
+  _globals['_REASON']._serialized_end=233
+  _globals['_CLASSIFICATION']._serialized_start=235
+  _globals['_CLASSIFICATION']._serialized_end=326
+  _globals['_ALERT']._serialized_start=328
+  _globals['_ALERT']._serialized_end=455
+  _globals['_INFERENCE']._serialized_start=458
+  _globals['_INFERENCE']._serialized_end=623
 # @@protoc_insertion_point(module_scope)

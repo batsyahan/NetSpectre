@@ -281,6 +281,13 @@ fn open_db() -> rusqlite::Connection {
         CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(ts_utc);",
     )
     .expect("create schema");
+    let has_col = db
+        .prepare("SELECT 1 FROM pragma_table_info('alerts') WHERE name = 'explanation'")
+        .and_then(|mut st| st.exists([]))
+        .unwrap_or(false);
+    if !has_col {
+        let _ = db.execute("ALTER TABLE alerts ADD COLUMN explanation TEXT", []);
+    }
     use std::os::unix::fs::PermissionsExt;
     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666));
     eprintln!("alert database: {path}");
@@ -301,6 +308,7 @@ struct AlertRow {
     flow_count: i64,
     avg_confidence: f64,
     status: String,
+    explanation: serde_json::Value,
 }
 
 async fn api_health() -> axum::Json<Health> {
@@ -315,7 +323,7 @@ async fn api_alerts(
     let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
     let db = rusqlite::Connection::open(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut stmt = db
-        .prepare("SELECT id, ts_utc, src_ip, label, flow_count, avg_confidence, status FROM alerts ORDER BY id DESC LIMIT ?1")
+        .prepare("SELECT id, ts_utc, src_ip, label, flow_count, avg_confidence, status, explanation FROM alerts ORDER BY id DESC LIMIT ?1")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rows = stmt
         .query_map([limit], |r| {
@@ -327,6 +335,10 @@ async fn api_alerts(
                 flow_count: r.get(4)?,
                 avg_confidence: r.get(5)?,
                 status: r.get(6)?,
+                explanation: r
+                    .get::<_, Option<String>>(7)?
+                    .and_then(|t| serde_json::from_str(&t).ok())
+                    .unwrap_or(serde_json::Value::Array(vec![])),
             })
         })
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -417,9 +429,17 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
             last_alert.insert(key, now);
             let avg = h.iter().map(|x| x.2).sum::<f32>() / h.len() as f32;
             println!("ALERT {src} -> {}: {count} {unit} in 10s (avg confidence {avg:.2})", resp.label);
+            let reasons_json = serde_json::to_string(
+                &resp
+                    .reasons
+                    .iter()
+                    .map(|r| serde_json::json!({"feature": r.feature, "text": r.text, "weight": r.weight}))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap_or_default();
             if let Err(e) = db.execute(
-                "INSERT INTO alerts (src_ip, label, flow_count, avg_confidence) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![src, resp.label, count as i64, avg as f64],
+                "INSERT INTO alerts (src_ip, label, flow_count, avg_confidence, explanation) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![src, resp.label, count as i64, avg as f64, reasons_json],
             ) {
                 eprintln!("db error: {e}");
             }
