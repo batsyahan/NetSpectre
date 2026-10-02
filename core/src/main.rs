@@ -259,6 +259,31 @@ fn start_worker(addr: String) {
     });
 }
 
+fn open_db() -> rusqlite::Connection {
+    let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
+    if let Some(dir) = std::path::Path::new(&path).parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let db = rusqlite::Connection::open(&path).expect("open db");
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+            src_ip TEXT NOT NULL,
+            label TEXT NOT NULL,
+            flow_count INTEGER NOT NULL,
+            avg_confidence REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'new'
+        );
+        CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(ts_utc);",
+    )
+    .expect("create schema");
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666));
+    eprintln!("alert database: {path}");
+    db
+}
+
 async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<pb::FlowFeatures>) {
     use std::collections::{HashMap, HashSet};
     let mut client = loop {
@@ -271,6 +296,7 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
         }
     };
     eprintln!("connected to ML server at {addr}");
+    let db = open_db();
     let verbose = env::var("NS_VERBOSE").is_ok();
     let mut hist: HashMap<(String, String), Vec<(Instant, u32, f32)>> = HashMap::new();
     let mut last_alert: HashMap<(String, String), Instant> = HashMap::new();
@@ -305,6 +331,12 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
             last_alert.insert(key, now);
             let avg = h.iter().map(|x| x.2).sum::<f32>() / h.len() as f32;
             println!("ALERT {src} -> {}: {count} {unit} in 10s (avg confidence {avg:.2})", resp.label);
+            if let Err(e) = db.execute(
+                "INSERT INTO alerts (src_ip, label, flow_count, avg_confidence) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![src, resp.label, count as i64, avg as f64],
+            ) {
+                eprintln!("db error: {e}");
+            }
         }
     }
 }
