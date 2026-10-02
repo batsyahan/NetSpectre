@@ -4,13 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = "0.8.9"
 pcap = "2.5.0"
 prost = "0.14.4"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "time", "sync", "net"] }
 tokio-stream = "0.1.19"
 tonic = "0.14.6"
 tonic-prost = "0.14.6"
+tower-http = { version = "0.7.1", features = ["cors"] }
 
 [build-dependencies]
 tonic-prost-build = "0.14.6"
