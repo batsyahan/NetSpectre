@@ -34,3 +34,8 @@ tr:last-child td { border-bottom: 0; }
 .empty { color: var(--muted); margin: 8px 0 0; }
 footer { color: var(--muted); font-size: 12px; margin-top: 12px; text-align: right; }
 @media (max-width: 640px) { th:nth-child(5), td:nth-child(5), th:nth-child(7), td:nth-child(7) { display: none; } }
+tr.dim td { opacity: 0.45; }
+tr.dim td.actions { opacity: 1; }
+.actions { white-space: nowrap; }
+.actions button { background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; margin-right: 6px; font: inherit; font-size: 13px; cursor: pointer; }
+.actions button:hover { border-color: var(--muted); background: rgba(255, 255, 255, 0.05); }

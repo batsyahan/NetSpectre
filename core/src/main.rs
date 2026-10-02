@@ -335,11 +335,34 @@ async fn api_alerts(
     Ok(axum::Json(rows))
 }
 
+#[derive(serde::Deserialize)]
+struct StatusUpdate {
+    id: i64,
+    status: String,
+}
+
+async fn api_set_status(axum::Json(u): axum::Json<StatusUpdate>) -> axum::http::StatusCode {
+    use axum::http::StatusCode;
+    if !["new", "acknowledged", "dismissed"].contains(&u.status.as_str()) {
+        return StatusCode::BAD_REQUEST;
+    }
+    let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
+    let Ok(db) = rusqlite::Connection::open(path) else {
+        return StatusCode::INTERNAL_SERVER_ERROR;
+    };
+    match db.execute("UPDATE alerts SET status = ?1 WHERE id = ?2", rusqlite::params![u.status, u.id]) {
+        Ok(0) => StatusCode::NOT_FOUND,
+        Ok(_) => StatusCode::OK,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
 async fn run_api() {
     let _ = open_db(); // make sure the schema exists
     let app = axum::Router::new()
         .route("/api/health", axum::routing::get(api_health))
         .route("/api/alerts", axum::routing::get(api_alerts))
+        .route("/api/alerts/status", axum::routing::post(api_set_status))
         .layer(tower_http::cors::CorsLayer::permissive());
     let addr = env::var("NS_API_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind api address");

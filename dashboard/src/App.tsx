@@ -63,6 +63,15 @@ export default function App() {
   const top = [...counts.entries()].sort((x, y) => y[1] - x[1])[0];
   const fmt = (iso: string) => new Date(iso).toLocaleString("en-IN", { hour12: false });
 
+  const setStatus = async (id: number, status: string) => {
+    const r = await fetch("/api/alerts/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status }),
+    });
+    if (r.ok) setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
+  };
+
   return (
     <main>
       <header>
@@ -104,11 +113,12 @@ export default function App() {
                 <th>Flows</th>
                 <th>Confidence</th>
                 <th>Status</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {alerts.map((a) => (
-                <tr key={a.id}>
+                <tr key={a.id} className={a.status === "dismissed" ? "dim" : ""}>
                   <td>{fmt(a.ts_utc)}</td>
                   <td>
                     <span className={`sev ${severityOf(a.label)}`}>{severityOf(a.label)}</span>
@@ -118,6 +128,16 @@ export default function App() {
                   <td>{a.flow_count}</td>
                   <td>{Math.round(a.avg_confidence * 100)}%</td>
                   <td>{a.status}</td>
+                  <td className="actions">
+                    {a.status === "new" ? (
+                      <>
+                        <button onClick={() => setStatus(a.id, "acknowledged")}>Acknowledge</button>
+                        <button onClick={() => setStatus(a.id, "dismissed")}>Dismiss</button>
+                      </>
+                    ) : (
+                      <button onClick={() => setStatus(a.id, "new")}>Reopen</button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
