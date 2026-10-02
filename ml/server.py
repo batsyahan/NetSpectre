@@ -10,14 +10,26 @@ from gen import netspectre_pb2_grpc as pbg
 
 classes = json.load(open("models/classes.json"))
 n_feat = len(json.load(open("models/feature_cols_35.json")))
-sess = ort.InferenceSession("models/multiclass_xgb35.onnx")
+import os
+ENSEMBLE = os.environ.get("NS_ENSEMBLE", "1") == "1"
+sess_x = ort.InferenceSession("models/multiclass_xgb35.onnx")
+sess_c = ort.InferenceSession("models/multiclass_cat35.onnx")
+
+
+def probs(sess, x):
+    p = sess.run(None, {sess.get_inputs()[0].name: x})[1][0]
+    if isinstance(p, dict):
+        p = [p[k] for k in sorted(p, key=int)]
+    return np.asarray(p, dtype=np.float64)
 
 
 def classify(features):
     if len(features) != n_feat:
         raise ValueError(f"expected {n_feat} features, got {len(features)}")
-    p = sess.run(None, {"input": np.array([features], dtype=np.float32)})[1][0]
-    p = [p[k] for k in sorted(p)] if isinstance(p, dict) else list(p)
+    x = np.array([features], dtype=np.float32)
+    p = probs(sess_x, x)
+    if ENSEMBLE:
+        p = (p + probs(sess_c, x)) / 2
     i = int(np.argmax(p))
     return pb.Classification(label=classes[i], confidence=float(p[i]))
 
@@ -42,5 +54,5 @@ if __name__ == "__main__":
     pbg.add_InferenceServicer_to_server(Inference(), server)
     server.add_insecure_port("127.0.0.1:50051")
     server.start()
-    print("inference server listening on 127.0.0.1:50051", flush=True)
+    print("inference server listening on 127.0.0.1:50051 | ensemble:", ENSEMBLE, flush=True)
     server.wait_for_termination()
