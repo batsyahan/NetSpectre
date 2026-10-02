@@ -64,6 +64,14 @@ export default function App() {
   const top = [...counts.entries()].sort((x, y) => y[1] - x[1])[0];
   const fmt = (iso: string) => new Date(iso).toLocaleString("en-IN", { hour12: false });
 
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [labelFilter, setLabelFilter] = useState("all");
+  const shown = alerts.filter(
+    (a) =>
+      (statusFilter === "all" || a.status === statusFilter) &&
+      (labelFilter === "all" || a.label === labelFilter),
+  );
+
   const setStatus = async (id: number, status: string) => {
     const r = await fetch("/api/alerts/status", {
       method: "POST",
@@ -99,6 +107,31 @@ export default function App() {
 
       <section className="panel">
         <h2>Alerts</h2>
+        <div className="filters">
+          <label>
+            Status
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="all">All</option>
+              <option value="new">New</option>
+              <option value="acknowledged">Acknowledged</option>
+              <option value="dismissed">Dismissed</option>
+            </select>
+          </label>
+          <label>
+            Attack
+            <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)}>
+              <option value="all">All</option>
+              {[...counts.keys()].sort().map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="shown">
+            Showing {shown.length} of {alerts.length}
+          </span>
+        </div>
         {alerts.length === 0 ? (
           <p className="empty">
             {online ? "No alerts yet. The network looks quiet." : "Cannot reach the monitor on port 8080."}
@@ -118,7 +151,7 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {alerts.map((a) => (
+              {shown.map((a) => (
                 <tr key={a.id} className={a.status === "dismissed" ? "dim" : ""}>
                   <td>{fmt(a.ts_utc)}</td>
                   <td>
