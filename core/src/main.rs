@@ -255,7 +255,10 @@ fn start_worker(addr: String) {
     TX.set(tx).ok();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-        rt.block_on(run_client(addr, rx));
+        rt.block_on(async {
+            tokio::spawn(run_api());
+            run_client(addr, rx).await
+        });
     });
 }
 
@@ -282,6 +285,66 @@ fn open_db() -> rusqlite::Connection {
     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666));
     eprintln!("alert database: {path}");
     db
+}
+
+#[derive(serde::Serialize)]
+struct Health {
+    status: &'static str,
+}
+
+#[derive(serde::Serialize)]
+struct AlertRow {
+    id: i64,
+    ts_utc: String,
+    src_ip: String,
+    label: String,
+    flow_count: i64,
+    avg_confidence: f64,
+    status: String,
+}
+
+async fn api_health() -> axum::Json<Health> {
+    axum::Json(Health { status: "ok" })
+}
+
+async fn api_alerts(
+    axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
+) -> Result<axum::Json<Vec<AlertRow>>, axum::http::StatusCode> {
+    use axum::http::StatusCode;
+    let limit: i64 = q.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50).clamp(1, 500);
+    let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
+    let db = rusqlite::Connection::open(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .prepare("SELECT id, ts_utc, src_ip, label, flow_count, avg_confidence, status FROM alerts ORDER BY id DESC LIMIT ?1")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = stmt
+        .query_map([limit], |r| {
+            Ok(AlertRow {
+                id: r.get(0)?,
+                ts_utc: r.get(1)?,
+                src_ip: r.get(2)?,
+                label: r.get(3)?,
+                flow_count: r.get(4)?,
+                avg_confidence: r.get(5)?,
+                status: r.get(6)?,
+            })
+        })
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(axum::Json(rows))
+}
+
+async fn run_api() {
+    let _ = open_db(); // make sure the schema exists
+    let app = axum::Router::new()
+        .route("/api/health", axum::routing::get(api_health))
+        .route("/api/alerts", axum::routing::get(api_alerts))
+        .layer(tower_http::cors::CorsLayer::permissive());
+    let addr = env::var("NS_API_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+    let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind api address");
+    eprintln!("REST API on http://{addr}");
+    axum::serve(listener, app).await.unwrap();
 }
 
 async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<pb::FlowFeatures>) {
