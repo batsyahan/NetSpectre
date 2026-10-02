@@ -17,3 +17,4 @@ ml/catboost_info/
 ml/models/*.cbm
 dashboard/node_modules/
 dashboard/dist/
+dashboard/src/*.bak
