@@ -13,3 +13,5 @@ __pycache__/
 ml/*.bak
 core/src/main.rs.v*
 data/*.db
+ml/catboost_info/
+ml/models/*.cbm
