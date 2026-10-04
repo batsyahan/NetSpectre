@@ -445,6 +445,28 @@ async fn api_export() -> Result<impl axum::response::IntoResponse, axum::http::S
     ))
 }
 
+fn ct_eq(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+// Requests from this machine pass; anything else needs the x-api-token header to match NS_API_TOKEN.
+async fn require_token(
+    axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if peer.ip().is_loopback() {
+        return next.run(req).await;
+    }
+    let want = env::var("NS_API_TOKEN").unwrap_or_default();
+    let got = req.headers().get("x-api-token").and_then(|v| v.to_str().ok()).unwrap_or("");
+    if want.is_empty() || !ct_eq(got, &want) {
+        return axum::http::StatusCode::UNAUTHORIZED.into_response();
+    }
+    next.run(req).await
+}
+
 async fn run_api() {
     let _ = open_db(); // make sure the schema exists
     let app = axum::Router::new()
@@ -453,11 +475,12 @@ async fn run_api() {
         .route("/api/alerts/status", axum::routing::post(api_set_status))
         .route("/api/devices", axum::routing::get(api_devices))
         .route("/api/alerts/export", axum::routing::get(api_export))
+        .layer(axum::middleware::from_fn(require_token))
         .layer(tower_http::cors::CorsLayer::permissive());
     let addr = env::var("NS_API_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind api address");
     eprintln!("REST API on http://{addr}");
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
 }
 
 async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<pb::FlowFeatures>) {

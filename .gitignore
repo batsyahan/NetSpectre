@@ -24,3 +24,5 @@ dashboard/src/*.bak
 data/*
 *.bak[0-9]
 !ml/requirements-server.txt
+.env
+mobile/.env.local
