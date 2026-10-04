@@ -1,110 +1,90 @@
-# 🛡️ NetSpectre
+# NetSpectre
 
-[![Rust CI](https://github.com/batsyahan/NetSpectre/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/batsyahan/NetSpectre/actions/workflows/rust-ci.yml)
-[![Python CI](https://github.com/batsyahan/NetSpectre/actions/workflows/python-ci.yml/badge.svg)](https://github.com/batsyahan/NetSpectre/actions/workflows/python-ci.yml)
-[![React CI](https://github.com/batsyahan/NetSpectre/actions/workflows/react-ci.yml/badge.svg)](https://github.com/batsyahan/NetSpectre/actions/workflows/react-ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+**ML-based intrusion detection for home networks.** NetSpectre captures live traffic, turns each network flow into 35 features, classifies it with an XGBoost + CatBoost ensemble trained on CICIDS2017, flags traffic that matches no known attack with an autoencoder, and shows plain-language reasons for every alert on a web dashboard and an Android/iOS app.
 
-**ML-Based Network Intrusion Detection System for Home Networks**
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-NetSpectre is an intelligent, real-time network intrusion detection system designed specifically for home networks. It combines the raw performance of Rust for packet capture and analysis with Python-based machine learning for anomaly detection, presented through a beautiful React dashboard and React Native mobile app.
-
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
-│  Network     │────▶│  Rust Core   │────▶│  Python ML      │
-│  Traffic     │     │  Engine      │     │  Pipeline       │
-│  (pcap)      │     │  (capture/   │     │  (inference/    │
-│              │     │   analyze)   │     │   training)     │
-└─────────────┘     └──────┬───────┘     └────────┬────────┘
-                           │                       │
-                           ▼                       ▼
-                    ┌──────────────┐     ┌─────────────────┐
-                    │  REST/gRPC   │────▶│  React          │
-                    │  API Layer   │     │  Dashboard      │
-                    │              │     │  + React Native │
-                    └──────────────┘     │  Mobile App     │
-                                        └─────────────────┘
+ packets ──▶ Rust monitor (core/) ──gRPC──▶ Python ML service (ml/)
+ (libpcap)   flows → 35 features            XGBoost+CatBoost classifier (ONNX)
+                 │                          autoencoder anomaly score (ONNX)
+                 │                          TreeSHAP "why" reasons
+                 ▼
+          SQLite alerts + devices
+                 │
+          REST API (Axum, :8080, token for non-local clients)
+             │                    │
+   Web dashboard (:5173)    Mobile app (Expo)
 ```
-
-## 📦 Project Structure
 
 | Directory | Technology | Purpose |
-|-----------|-----------|---------|
-| `core/` | 🦀 Rust | Packet capture, traffic analysis, protocol parsing, API server |
-| `ml/` | 🐍 Python | ML models, training pipelines, real-time inference |
-| `dashboard/` | ⚛️ React + TypeScript | Web-based monitoring dashboard |
-| `mobile/` | 📱 React Native | Mobile monitoring & push alerts |
-| `shared/` | 🔗 Protobuf + OpenAPI | API contracts & shared type definitions |
-| `infra/` | 🐳 Docker + K8s | Containerization & deployment |
-| `docs/` | 📚 Markdown | Architecture docs, setup guides, API reference |
+|---|---|---|
+| `core/` | Rust (pcap, tokio, tonic, axum, rusqlite) | Packet capture, flow features, alert grouping, REST API |
+| `ml/` | Python (onnxruntime, xgboost, grpcio) | Inference server, explanations, anomaly score, training scripts |
+| `dashboard/` | React + TypeScript | Alerts, triage, device list, CSV export |
+| `mobile/` | React Native (Expo) | Live alerts on a phone, acknowledge / dismiss |
+| `shared/` | Protobuf | gRPC contract between monitor and ML service |
+| `scripts/` | Bash | End-to-end smoke test |
+| `docs/` | Markdown | Measured results and limitations (`RESULTS.md`) |
 
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Rust 1.75+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
-- Python 3.11+ with pip
-- Node.js 20+ with npm
-- Docker & Docker Compose
-- libpcap (`sudo apt install libpcap-dev` / `brew install libpcap`)
-
-### Development Setup
+## Quick start (Docker)
 
 ```bash
-# Clone the repository
-git clone https://github.com/batsyahan/NetSpectre.git
-cd NetSpectre
-
-# Start all services with Docker Compose
-docker compose -f infra/docker-compose.yml up --build
-
-# Or run individual components:
-
-# Rust core engine
-cd core && cargo build && cargo run
-
-# Python ML pipeline
-cd ml && pip install -e ".[dev]" && python -m netspectre_ml
-
-# React dashboard
-cd dashboard && npm install && npm run dev
-
-# React Native mobile app
-cd mobile && npm install && npx expo start
+git clone https://github.com/batsyahan/NetSpectre.git && cd NetSpectre
+echo "NS_API_TOKEN=$(openssl rand -hex 16)" > .env     # token for API clients on other devices
+docker compose up -d --build
 ```
 
-## 🧪 Running Tests
+- Dashboard: http://localhost:5173
+- API: http://localhost:8080/api/health
+- The monitor captures on `lo` by default. To watch a real interface: `NS_IFACE=eth0 docker compose up -d monitor`.
+- Trusted sources that should not raise anomaly alerts: `NS_ANOMALY_IGNORE` in `docker-compose.yml`.
+
+### Mobile app
 
 ```bash
-# Rust tests
-cd core && cargo test
-
-# Python tests
-cd ml && pytest
-
-# Dashboard tests
-cd dashboard && npm test
-
-# Mobile tests
-cd mobile && npm test
+cd mobile && npm install
+# mobile/.env.local (git-ignored):
+#   EXPO_PUBLIC_API_URL=http://<laptop-lan-ip>:8080
+#   EXPO_PUBLIC_API_TOKEN=<the NS_API_TOKEN from .env>
+npx expo start
 ```
 
-## 🤝 Contributing
+Open the QR code in Expo Go on a phone on the same Wi-Fi.
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+## Demo script (about 5 minutes)
 
-## 📄 License
+1. `docker compose up -d` and open the dashboard.
+2. Run `bash scripts/smoke_test.sh`. It launches a port scan from a throwaway container and checks the result.
+3. Watch a **PortScan** alert appear, with its "Why:" line showing the top contributing features.
+4. Open the phone app and show the same alert. Acknowledge one alert and dismiss another, then confirm the status changes on the dashboard.
+5. Click **Export CSV** to show the audit trail, and open the **Devices** panel.
+6. Point out the anomaly alerts ("Anomaly (unknown)"), which come from the autoencoder and not from the classifier.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Tests
 
-## 🙏 Acknowledgments
+```bash
+cd core && cargo test                 # 10 Rust unit tests (parser, flow features, statistics, token check)
+cd ml && python -m unittest -v test_ml    # 10 Python tests (feature contract, classify, explanations, anomaly)
+bash scripts/smoke_test.sh            # end-to-end against the running stack
+```
 
-- [CICIDS2017 Dataset](https://www.unb.ca/cic/datasets/ids-2017.html) for ML training data
-- [libpnet](https://github.com/libpnet/libpnet) for Rust packet capture
-- [scikit-learn](https://scikit-learn.org/) & [PyTorch](https://pytorch.org/) for ML models
+## Results and limitations
+
+Measured numbers (latency, detection checks, deployment findings) are in [docs/RESULTS.md](docs/RESULTS.md). Key points:
+
+- ML call latency on a laptop: 2.0 ms mean for benign flows, 8.2 ms mean for attacks including explanations. The ARM64 image builds and serves under emulation; it has not yet been timed on real Raspberry Pi hardware.
+- Anomaly thresholds are demo-grade and need calibration per network.
+- Capture needs a vantage point that actually sees the traffic (a gateway, access point or mirror port). A host on ordinary Wi-Fi, and WSL2, see only their own traffic.
+- TCP flag-count features were removed from the model because they are a dataset artifact in CICIDS2017.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
+
+## Acknowledgments
+
+- [CICIDS2017](https://www.unb.ca/cic/datasets/ids-2017.html) (Canadian Institute for Cybersecurity) for training data
+- XGBoost, CatBoost, ONNX Runtime and SHAP for the models and explanations
