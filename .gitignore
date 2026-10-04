@@ -21,3 +21,6 @@ dashboard/src/*.bak
 *.bak
 *.bak2
 *.proto.bak
+data/*
+*.bak[0-9]
+!ml/requirements-server.txt
