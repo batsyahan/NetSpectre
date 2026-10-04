@@ -17,6 +17,7 @@ services:
     environment:
       NS_DB: /data/netspectre.db
       NS_ML_ADDR: http://127.0.0.1:50051
+      NS_ANOMALY_IGNORE: 10.255.255.254   # trusted sources (comma-separated), e.g. your router's DNS
     volumes:
       - ./data:/data
     depends_on: [ml]
