@@ -25,3 +25,8 @@ Target: 50 ms. The ARM64 figures come from an emulator, not from a Raspberry Pi 
 - Anomaly thresholds (0.2369 at 1%, 0.1347 at 3%, 0.1040 at 5% of benign test flows) are demo-grade and need per-network calibration.
 - Dataset shift: DNS traffic from the WSL resolver (10.255.255.254) is flagged as anomalous, so it is on a trusted-source list.
 - TCP flag-count features were dropped from the model (dataset artifact in CICIDS2017).
+
+## Real-traffic false-alert check (small sanity test)
+- Setup: 300 ordinary HTTP GET requests (0.2 s apart) from a container to the dashboard over the Docker bridge, captured by the live monitor and classified by the deployed models.
+- Result: 300/300 requests completed, 0 alerts raised.
+- Caveat: one traffic type, one server, one client. This is a sanity check, not a false-alarm rate. The dataset figure (0.17% of benign test flows misclassified) remains the quantitative estimate; a realistic home-traffic mix (streaming, DNS, calls, IoT) has not been tested.
