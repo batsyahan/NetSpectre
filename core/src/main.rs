@@ -530,6 +530,19 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
                     .collect::<Vec<_>>(),
             )
             .unwrap_or_default();
+            let reasons_json = if label == "Anomaly (unknown)" {
+                serde_json::json!([{
+                    "feature": "anomaly_score",
+                    "text": format!(
+                        "unusual traffic pattern not matching known attacks (reconstruction error {:.2} vs threshold {:.2})",
+                        resp.anomaly_score, ae_thr
+                    ),
+                    "weight": 100.0
+                }])
+                .to_string()
+            } else {
+                reasons_json
+            };
             if let Err(e) = db.execute(
                 "INSERT INTO alerts (src_ip, label, flow_count, avg_confidence, explanation) VALUES (?1, ?2, ?3, ?4, ?5)",
                 rusqlite::params![src, label, count as i64, avg as f64, reasons_json],
