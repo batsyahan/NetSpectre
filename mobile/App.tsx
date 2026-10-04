@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { API_URL } from "./config";
+import { API_TOKEN, API_URL } from "./config";
 
 type Reason = { feature: string; text: string; weight: number };
 type Alert = {
@@ -22,7 +22,7 @@ export default function App() {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`${API_URL}/api/alerts?limit=50`);
+      const r = await fetch(`${API_URL}/api/alerts?limit=50`, { headers: { "x-api-token": API_TOKEN } });
       if (!r.ok) throw new Error("bad response");
       setAlerts(await r.json());
       setOnline(true);
