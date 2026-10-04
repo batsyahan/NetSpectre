@@ -26,6 +26,7 @@ message Classification {
   string label = 1;             // e.g. "BENIGN", "PortScan"
   float confidence = 2;         // probability of the predicted label, 0..1
   repeated Reason reasons = 3;  // top 3 reasons, only for attack verdicts
+  float anomaly_score = 4;      // autoencoder reconstruction error, higher = more unusual
 }
 
 // A grouped incident (e.g. one source scanning many ports).
