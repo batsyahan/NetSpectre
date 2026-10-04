@@ -660,3 +660,174 @@ fn main() {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn approx(a: f64, b: f64) -> bool { (a - b).abs() < 1e-6 }
+
+    /// Build an Ethernet + IPv4 + TCP/UDP frame by hand.
+    fn frame(proto: u8, src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, flags: u8, win: u16, payload: usize) -> Vec<u8> {
+        let mut f = vec![0u8; 12];
+        f.extend_from_slice(&[0x08, 0x00]); // IPv4
+        let l4len = if proto == 6 { 20 } else { 8 };
+        let total = (20 + l4len + payload) as u16;
+        let mut ip = vec![0x45, 0, (total >> 8) as u8, total as u8, 0, 0, 0, 0, 64, proto, 0, 0];
+        ip.extend_from_slice(&src);
+        ip.extend_from_slice(&dst);
+        f.extend_from_slice(&ip);
+        f.extend_from_slice(&sport.to_be_bytes());
+        f.extend_from_slice(&dport.to_be_bytes());
+        if proto == 6 {
+            f.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]); // seq + ack
+            f.push(0x50); // data offset = 5 words
+            f.push(flags);
+            f.extend_from_slice(&win.to_be_bytes());
+            f.extend_from_slice(&[0, 0, 0, 0]); // checksum + urgent
+        } else {
+            f.extend_from_slice(&((8 + payload) as u16).to_be_bytes());
+            f.extend_from_slice(&[0, 0]);
+        }
+        f.extend(std::iter::repeat(0xAB).take(payload));
+        f
+    }
+
+    fn pkt(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, flags: u8, win: u32, payload: u32, ts_us: u64) -> Pkt {
+        Pkt {
+            src: Ipv4Addr::from(src), dst: Ipv4Addr::from(dst), sport, dport,
+            proto: 6, payload, hdr_len: 20, flags, win, l4hdr: 20, ts_us,
+        }
+    }
+
+    fn feat(f: &Flow, name: &str) -> f64 {
+        f.features().into_iter().find(|(n, _)| *n == name).unwrap_or_else(|| panic!("no feature {name}")).1
+    }
+
+    #[test]
+    fn parses_tcp_syn() {
+        let d = frame(6, [10, 0, 0, 1], [10, 0, 0, 2], 40000, 80, 0x02, 1024, 100);
+        let p = parse(&d, 5).expect("should parse");
+        assert_eq!(p.src, Ipv4Addr::new(10, 0, 0, 1));
+        assert_eq!(p.dst, Ipv4Addr::new(10, 0, 0, 2));
+        assert_eq!((p.sport, p.dport, p.proto), (40000, 80, 6));
+        assert_eq!(p.flags, 0x02);
+        assert_eq!(p.win, 1024);
+        assert_eq!(p.payload, 100);
+        assert_eq!(p.l4hdr, 20);
+        assert_eq!(p.ts_us, 5);
+    }
+
+    #[test]
+    fn parses_udp() {
+        let d = frame(17, [192, 168, 1, 5], [8, 8, 8, 8], 5353, 53, 0, 0, 40);
+        let p = parse(&d, 0).expect("should parse");
+        assert_eq!((p.sport, p.dport, p.proto), (5353, 53, 17));
+        assert_eq!(p.l4hdr, 8);
+        assert_eq!(p.win, 0);
+        assert_eq!(p.payload, 40);
+    }
+
+    #[test]
+    fn rejects_non_ipv4_short_and_other_protocols() {
+        let mut v6 = frame(6, [1, 1, 1, 1], [2, 2, 2, 2], 1, 2, 0, 0, 0);
+        v6[12] = 0x86; v6[13] = 0xDD; // IPv6 ethertype
+        assert!(parse(&v6, 0).is_none());
+        assert!(parse(&[0u8; 10], 0).is_none());
+        let icmp = frame(1, [1, 1, 1, 1], [2, 2, 2, 2], 0, 0, 0, 0, 8);
+        assert!(parse(&icmp, 0).is_none());
+    }
+
+    #[test]
+    fn short_frames_count_ethernet_padding_as_payload() {
+        // 14 + 20 + 20 = 54 bytes on the wire, padded to 60 -> 6 bytes of "payload"
+        let d = frame(6, [1, 1, 1, 1], [2, 2, 2, 2], 1000, 22, 0x02, 512, 0);
+        assert_eq!(d.len(), 54);
+        assert_eq!(parse(&d, 0).unwrap().payload, 6);
+    }
+
+    #[test]
+    fn flow_key_is_direction_independent() {
+        let a = pkt([10, 0, 0, 1], [10, 0, 0, 2], 5000, 80, 0, 0, 0, 0);
+        let b = pkt([10, 0, 0, 2], [10, 0, 0, 1], 80, 5000, 0, 0, 0, 0);
+        assert_eq!(key_of(&a), key_of(&b));
+        let c = pkt([10, 0, 0, 1], [10, 0, 0, 2], 5001, 80, 0, 0, 0, 0);
+        assert_ne!(key_of(&a), key_of(&c));
+    }
+
+    #[test]
+    fn stat_matches_hand_computed_values() {
+        let mut s = Stat::default();
+        for x in [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0] { s.add(x); }
+        assert!(approx(s.mean(), 5.0));
+        assert!(approx(s.std(), (32.0f64 / 7.0).sqrt())); // sample std (n-1)
+        assert!(approx(s.min(), 2.0));
+        assert!(approx(s.max(), 9.0));
+        assert!(approx(s.total(), 40.0));
+    }
+
+    #[test]
+    fn stat_empty_and_single_value_are_zero_not_nan() {
+        let s = Stat::default();
+        assert_eq!((s.mean(), s.std(), s.min(), s.max()), (0.0, 0.0, 0.0, 0.0));
+        let mut one = Stat::default();
+        one.add(7.0);
+        assert!(approx(one.mean(), 7.0));
+        assert_eq!(one.std(), 0.0);
+    }
+
+    #[test]
+    fn flow_features_for_a_three_packet_handshake() {
+        let c = [10, 0, 0, 1];
+        let s = [10, 0, 0, 2];
+        let mut f = Flow::new(&pkt(c, s, 40000, 80, 0x02, 1000, 100, 0));
+        f.update(&pkt(c, s, 40000, 80, 0x02, 1000, 100, 0)); // SYN, 100 B, t=0
+        f.update(&pkt(s, c, 80, 40000, 0x12, 2000, 50, 1000)); // SYN+ACK, 50 B, t=1 ms
+        f.update(&pkt(c, s, 40000, 80, 0x10, 1000, 0, 3000)); // ACK, 0 B, t=3 ms
+
+        assert_eq!(f.syn, 2);
+        assert_eq!(f.ack, 2);
+        assert_eq!((f.fin, f.rst, f.psh), (0, 0, 0));
+
+        assert_eq!(feat(&f, "Destination Port"), 80.0);
+        assert_eq!(feat(&f, "Total Fwd Packets"), 2.0);
+        assert_eq!(feat(&f, "Total Backward Packets"), 1.0);
+        assert_eq!(feat(&f, "Total Length of Fwd Packets"), 100.0);
+        assert_eq!(feat(&f, "Total Length of Bwd Packets"), 50.0);
+        assert!(approx(feat(&f, "Flow Duration"), 3000.0));
+        assert_eq!(feat(&f, "Fwd Packet Length Max"), 100.0);
+        assert_eq!(feat(&f, "Fwd Packet Length Min"), 0.0);
+        assert!(approx(feat(&f, "Fwd Packet Length Mean"), 50.0));
+        // inter-arrival times: 1000 us and 2000 us
+        assert!(approx(feat(&f, "Flow IAT Mean"), 1500.0));
+        assert_eq!(feat(&f, "Flow IAT Min"), 1000.0);
+        assert_eq!(feat(&f, "Flow IAT Max"), 2000.0);
+        assert!(approx(feat(&f, "Fwd IAT Total"), 3000.0));
+        // rates: 3 packets / 3 ms, 150 bytes / 3 ms
+        assert!(approx(feat(&f, "Flow Packets/s"), 1000.0));
+        assert!(approx(feat(&f, "Flow Bytes/s"), 50000.0));
+        assert_eq!(feat(&f, "Fwd Header Length"), 40.0);
+        assert_eq!(feat(&f, "Bwd Header Length"), 20.0);
+        assert_eq!(feat(&f, "Init_Win_bytes_forward"), 1000.0);
+        assert_eq!(feat(&f, "Init_Win_bytes_backward"), 2000.0);
+        assert_eq!(feat(&f, "act_data_pkt_fwd"), 1.0);
+        assert_eq!(feat(&f, "min_seg_size_forward"), 20.0);
+    }
+
+    #[test]
+    fn one_way_flow_reports_no_backward_window() {
+        let mut f = Flow::new(&pkt([1, 1, 1, 1], [2, 2, 2, 2], 4000, 22, 0x02, 512, 0, 0));
+        f.update(&pkt([1, 1, 1, 1], [2, 2, 2, 2], 4000, 22, 0x02, 512, 0, 0));
+        assert_eq!(feat(&f, "Init_Win_bytes_backward"), -1.0);
+        assert_eq!(feat(&f, "Flow Packets/s"), 0.0); // zero duration must not divide by zero
+        assert_eq!(feat(&f, "Total Backward Packets"), 0.0);
+    }
+
+    #[test]
+    fn token_comparison() {
+        assert!(ct_eq("secret", "secret"));
+        assert!(!ct_eq("secret", "secreT"));
+        assert!(!ct_eq("secret", "secret2"));
+        assert!(!ct_eq("", "secret"));
+    }
+}
