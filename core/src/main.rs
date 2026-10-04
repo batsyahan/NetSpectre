@@ -430,6 +430,7 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
     eprintln!("connected to ML server at {addr}");
     let db = open_db();
     let verbose = env::var("NS_VERBOSE").is_ok();
+    let ae_thr: f32 = env::var("NS_AE_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(0.2369);
     let mut hist: HashMap<(String, String), Vec<(Instant, u32, f32)>> = HashMap::new();
     let mut last_alert: HashMap<(String, String), Instant> = HashMap::new();
 
@@ -449,27 +450,34 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
                 continue;
             }
         };
-        if resp.label == "BENIGN" {
-            if verbose {
-                println!("ok    {src} -> port {dport}  BENIGN ({:.2})", resp.confidence);
+        let mut label = resp.label.clone();
+        let mut conf = resp.confidence;
+        if label == "BENIGN" {
+            if ae_thr > 0.0 && resp.anomaly_score > ae_thr {
+                label = "Anomaly (unknown)".to_string();
+                conf = (resp.anomaly_score / (2.0 * ae_thr)).min(1.0);
+            } else {
+                if verbose {
+                    println!("ok    {src} -> port {dport}  BENIGN ({:.2})", resp.confidence);
+                }
+                continue;
             }
-            continue;
         }
-        let key = (src.clone(), resp.label.clone());
+        let key = (src.clone(), label.clone());
         let now = Instant::now();
         let h = hist.entry(key.clone()).or_default();
         h.retain(|x| now.duration_since(x.0) <= Duration::from_secs(10));
-        h.push((now, dport, resp.confidence));
-        let (count, unit, need) = if resp.label == "PortScan" {
+        h.push((now, dport, conf));
+        let (count, unit, need) = if label == "PortScan" {
             (h.iter().map(|x| x.1).collect::<HashSet<_>>().len(), "ports", 10)
         } else {
-            (h.len(), "flows", 3)
+            (h.len(), "flows", if label == "Anomaly (unknown)" { 5 } else { 3 })
         };
         let quiet = last_alert.get(&key).map_or(true, |t| now.duration_since(*t) > Duration::from_secs(30));
         if count >= need && quiet {
             last_alert.insert(key, now);
             let avg = h.iter().map(|x| x.2).sum::<f32>() / h.len() as f32;
-            println!("ALERT {src} -> {}: {count} {unit} in 10s (avg confidence {avg:.2})", resp.label);
+            println!("ALERT {src} -> {}: {count} {unit} in 10s (avg confidence {avg:.2})", label);
             let reasons_json = serde_json::to_string(
                 &resp
                     .reasons
@@ -480,7 +488,7 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
             .unwrap_or_default();
             if let Err(e) = db.execute(
                 "INSERT INTO alerts (src_ip, label, flow_count, avg_confidence, explanation) VALUES (?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params![src, resp.label, count as i64, avg as f64, reasons_json],
+                rusqlite::params![src, label, count as i64, avg as f64, reasons_json],
             ) {
                 eprintln!("db error: {e}");
             }

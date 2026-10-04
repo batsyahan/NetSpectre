@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from . import netspectre_pb2 as netspectre__pb2
+from gen import netspectre_pb2 as netspectre__pb2
 
 GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__

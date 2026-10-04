@@ -18,3 +18,6 @@ ml/models/*.cbm
 dashboard/node_modules/
 dashboard/dist/
 dashboard/src/*.bak
+*.bak
+*.bak2
+*.proto.bak
