@@ -1,0 +1,145 @@
+test flows: 499605 | features: 35 | non-finite values: 0
+true class counts: {'BENIGN': np.int64(414453), 'DoS Hulk': np.int64(34570), 'DDoS': np.int64(25603), 'PortScan': np.int64(18139), 'DoS GoldenEye': np.int64(2057), 'FTP-Patator': np.int64(1187), 'DoS slowloris': np.int64(1075), 'DoS Slowhttptest': np.int64(1046), 'SSH-Patator': np.int64(644), 'Bot': np.int64(390), 'Web Attack - Brute Force': np.int64(294), 'Web Attack - XSS': np.int64(131), 'Infiltration': np.int64(8), 'Web Attack - Sql Injection': np.int64(5), 'Heartbleed': np.int64(3)}
+
+===== XGBoost only =====
+accuracy 0.9940 | macro F1 0.8523 | weighted F1 0.9943
+benign false-positive rate (benign flagged as any attack): 0.1436%
+                            precision    recall  f1-score   support
+
+                    BENIGN     0.9988    0.9986    0.9987    414453
+                       Bot     0.5000    1.0000    0.6667       390
+                      DDoS     0.9983    0.9987    0.9985     25603
+             DoS GoldenEye     0.9315    0.9976    0.9634      2057
+                  DoS Hulk     0.9984    0.9426    0.9697     34570
+          DoS Slowhttptest     0.8633    0.9904    0.9225      1046
+             DoS slowloris     0.9187    0.8930    0.9057      1075
+               FTP-Patator     0.9992    1.0000    0.9996      1187
+                Heartbleed     1.0000    1.0000    1.0000         3
+              Infiltration     0.6154    1.0000    0.7619         8
+                  PortScan     0.9364    0.9963    0.9654     18139
+               SSH-Patator     0.9908    1.0000    0.9954       644
+  Web Attack - Brute Force     0.5109    0.6395    0.5680       294
+Web Attack - Sql Injection     0.5556    1.0000    0.7143         5
+          Web Attack - XSS     0.2795    0.4885    0.3556       131
+
+                  accuracy                         0.9940    499605
+                 macro avg     0.8064    0.9297    0.8523    499605
+              weighted avg     0.9948    0.9940    0.9943    499605
+
+
+===== CatBoost only =====
+accuracy 0.9890 | macro F1 0.7528 | weighted F1 0.9899
+benign false-positive rate (benign flagged as any attack): 0.5106%
+                            precision    recall  f1-score   support
+
+                    BENIGN     0.9944    0.9949    0.9946    414453
+                       Bot     0.2342    1.0000    0.3796       390
+                      DDoS     0.9951    0.9988    0.9969     25603
+             DoS GoldenEye     0.9209    0.9966    0.9573      2057
+                  DoS Hulk     0.9932    0.9244    0.9576     34570
+          DoS Slowhttptest     0.6100    0.9914    0.7553      1046
+             DoS slowloris     0.8132    0.6195    0.7033      1075
+               FTP-Patator     0.9515    0.9924    0.9715      1187
+                Heartbleed     1.0000    1.0000    1.0000         3
+              Infiltration     0.3636    1.0000    0.5333         8
+                  PortScan     0.9954    0.9928    0.9941     18139
+               SSH-Patator     0.9224    0.9969    0.9582       644
+  Web Attack - Brute Force     0.6190    0.5748    0.5961       294
+Web Attack - Sql Injection     0.0769    1.0000    0.1429         5
+          Web Attack - XSS     0.2612    0.5344    0.3509       131
+
+                  accuracy                         0.9890    499605
+                 macro avg     0.7167    0.9078    0.7528    499605
+              weighted avg     0.9917    0.9890    0.9899    499605
+
+
+===== ENSEMBLE (deployed) =====
+accuracy 0.9945 | macro F1 0.8464 | weighted F1 0.9948
+benign false-positive rate (benign flagged as any attack): 0.1747%
+                            precision    recall  f1-score   support
+
+                    BENIGN     0.9982    0.9983    0.9982    414453
+                       Bot     0.4412    1.0000    0.6122       390
+                      DDoS     0.9985    0.9987    0.9986     25603
+             DoS GoldenEye     0.9323    0.9976    0.9638      2057
+                  DoS Hulk     0.9979    0.9544    0.9757     34570
+          DoS Slowhttptest     0.8528    0.9914    0.9169      1046
+             DoS slowloris     0.9349    0.8819    0.9076      1075
+               FTP-Patator     0.9983    0.9924    0.9954      1187
+                Heartbleed     1.0000    1.0000    1.0000         3
+              Infiltration     0.6154    1.0000    0.7619         8
+                  PortScan     0.9661    0.9961    0.9809     18139
+               SSH-Patator     0.9539    0.9969    0.9749       644
+  Web Attack - Brute Force     0.6026    0.6293    0.6156       294
+Web Attack - Sql Injection     0.4545    1.0000    0.6250         5
+          Web Attack - XSS     0.2857    0.5191    0.3686       131
+
+                  accuracy                         0.9945    499605
+                 macro avg     0.8022    0.9304    0.8464    499605
+              weighted avg     0.9954    0.9945    0.9948    499605
+
+
+===== most common confusions in the ensemble =====
+     665  true DoS Hulk  ->  predicted BENIGN
+     616  true DoS Hulk  ->  predicted PortScan
+     494  true BENIGN  ->  predicted Bot
+     142  true DoS Hulk  ->  predicted DoS GoldenEye
+     122  true DoS slowloris  ->  predicted DoS Slowhttptest
+     109  true Web Attack - Brute Force  ->  predicted Web Attack - XSS
+      64  true BENIGN  ->  predicted DoS Hulk
+      63  true PortScan  ->  predicted BENIGN
+      60  true Web Attack - XSS  ->  predicted Web Attack - Brute Force
+      48  true DoS Hulk  ->  predicted Web Attack - Brute Force
+      44  true DoS Hulk  ->  predicted Web Attack - XSS
+      34  true BENIGN  ->  predicted DoS slowloris
+
+===== autoencoder: share of flows with anomaly score > 0.2369 (benign 1% threshold) =====
+BENIGN                         1.00%   (n=414453)
+Bot                            0.00%   (n=390)
+DDoS                          73.78%   (n=25603)
+DoS GoldenEye                  8.70%   (n=2057)
+DoS Hulk                       5.74%   (n=34570)
+DoS Slowhttptest              85.85%   (n=1046)
+DoS slowloris                 23.91%   (n=1075)
+FTP-Patator                    2.53%   (n=1187)
+Heartbleed                     0.00%   (n=3)
+Infiltration                   0.00%   (n=8)
+PortScan                       1.08%   (n=18139)
+SSH-Patator                    0.16%   (n=644)
+Web Attack - Brute Force       0.00%   (n=294)
+Web Attack - Sql Injection     0.00%   (n=5)
+Web Attack - XSS               0.00%   (n=131)
+
+===== autoencoder: share of flows with anomaly score > 0.1347 (benign 3% threshold) =====
+BENIGN                         3.00%   (n=414453)
+Bot                            0.26%   (n=390)
+DDoS                          98.71%   (n=25603)
+DoS GoldenEye                 17.31%   (n=2057)
+DoS Hulk                      38.95%   (n=34570)
+DoS Slowhttptest              99.43%   (n=1046)
+DoS slowloris                 98.05%   (n=1075)
+FTP-Patator                   98.40%   (n=1187)
+Heartbleed                   100.00%   (n=3)
+Infiltration                  12.50%   (n=8)
+PortScan                       6.19%   (n=18139)
+SSH-Patator                    4.66%   (n=644)
+Web Attack - Brute Force       3.40%   (n=294)
+Web Attack - Sql Injection    20.00%   (n=5)
+Web Attack - XSS               2.29%   (n=131)
+
+===== autoencoder: share of flows with anomaly score > 0.104 (benign 5% threshold) =====
+BENIGN                         5.00%   (n=414453)
+Bot                           85.90%   (n=390)
+DDoS                          99.41%   (n=25603)
+DoS GoldenEye                 25.43%   (n=2057)
+DoS Hulk                      80.06%   (n=34570)
+DoS Slowhttptest              99.43%   (n=1046)
+DoS slowloris                 99.35%   (n=1075)
+FTP-Patator                   99.24%   (n=1187)
+Heartbleed                   100.00%   (n=3)
+Infiltration                 100.00%   (n=8)
+PortScan                      36.03%   (n=18139)
+SSH-Patator                    5.75%   (n=644)
+Web Attack - Brute Force      10.20%   (n=294)
+Web Attack - Sql Injection    40.00%   (n=5)
+Web Attack - XSS               3.82%   (n=131)
