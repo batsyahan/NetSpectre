@@ -475,6 +475,12 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
     let db = open_db();
     let verbose = env::var("NS_VERBOSE").is_ok();
     let ae_thr: f32 = env::var("NS_AE_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(0.2369);
+    let ae_ignore: Vec<String> = env::var("NS_ANOMALY_IGNORE")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
     let mut hist: HashMap<(String, String), Vec<(Instant, u32, f32)>> = HashMap::new();
     let mut last_alert: HashMap<(String, String), Instant> = HashMap::new();
 
@@ -497,7 +503,7 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
         let mut label = resp.label.clone();
         let mut conf = resp.confidence;
         if label == "BENIGN" {
-            if ae_thr > 0.0 && resp.anomaly_score > ae_thr {
+            if ae_thr > 0.0 && resp.anomaly_score > ae_thr && !ae_ignore.iter().any(|ip| *ip == src) {
                 label = "Anomaly (unknown)".to_string();
                 conf = (resp.anomaly_score / (2.0 * ae_thr)).min(1.0);
             } else {
