@@ -1,0 +1,30 @@
+services:
+  ml:
+    build: ./ml
+    image: netspectre-ml
+    ports:
+      - "127.0.0.1:50051:50051"
+    restart: unless-stopped
+
+  monitor:
+    build:
+      context: .
+      dockerfile: core/Dockerfile
+    image: netspectre-core
+    network_mode: host          # needed to capture packets on the host's interface
+    cap_add: [NET_RAW, NET_ADMIN]
+    command: ["lo"]             # change to your real interface (e.g. eth0) for live monitoring
+    environment:
+      NS_DB: /data/netspectre.db
+      NS_ML_ADDR: http://127.0.0.1:50051
+    volumes:
+      - ./data:/data
+    depends_on: [ml]
+    restart: unless-stopped
+
+  dashboard:
+    build: ./dashboard
+    image: netspectre-dashboard
+    network_mode: host
+    depends_on: [monitor]
+    restart: unless-stopped
