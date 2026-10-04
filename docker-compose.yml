@@ -13,7 +13,7 @@ services:
     image: netspectre-core
     network_mode: host          # needed to capture packets on the host's interface
     cap_add: [NET_RAW, NET_ADMIN]
-    command: ["lo"]             # change to your real interface (e.g. eth0) for live monitoring
+    command: ["${NS_IFACE:-lo}"]   # set NS_IFACE=eth1 (Wi-Fi) for live monitoring
     environment:
       NS_DB: /data/netspectre.db
       NS_ML_ADDR: http://127.0.0.1:50051
