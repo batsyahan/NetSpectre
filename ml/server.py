@@ -17,29 +17,20 @@ sess_c = ort.InferenceSession("models/multiclass_cat35.onnx")
 import xgboost as xgb
 from explain import explain
 FEATURES = json.load(open("models/feature_cols_35.json"))
-_xgb = xgb.XGBClassifier()
-_xgb.load_model("models/multiclass_xgb35.json")
-booster = _xgb.get_booster()
+booster = xgb.Booster()
+booster.load_model("models/multiclass_xgb35.json")
 booster.predict(xgb.DMatrix(np.zeros((1, len(FEATURES)), dtype=np.float32)), pred_contribs=True)  # warm-up
 
-import torch
-torch.set_num_threads(1)
 _meta = json.load(open("models/ae35_meta.json"))
 _mu = np.array(_meta["mu"], dtype=np.float32)
 _sd = np.array(_meta["sd"], dtype=np.float32)
-_ae = torch.nn.Sequential(
-    torch.nn.Linear(n_feat, 24), torch.nn.ReLU(), torch.nn.Linear(24, 12), torch.nn.ReLU(),
-    torch.nn.Linear(12, 6), torch.nn.ReLU(), torch.nn.Linear(6, 12), torch.nn.ReLU(),
-    torch.nn.Linear(12, 24), torch.nn.ReLU(), torch.nn.Linear(24, n_feat))
-_ae.load_state_dict(torch.load("models/ae35.pt"))
-_ae.eval()
+_ae = ort.InferenceSession("models/ae35.onnx")
 
 
 def anomaly(x):
-    z = ((np.sign(x) * np.log1p(np.abs(x))).astype(np.float32) - _mu) / _sd
-    t = torch.from_numpy(z)
-    with torch.no_grad():
-        return float(((_ae(t) - t) ** 2).mean())
+    z = (((np.sign(x) * np.log1p(np.abs(x))).astype(np.float32) - _mu) / _sd).astype(np.float32)
+    r = _ae.run(None, {"x": z})[0]
+    return float(((r - z) ** 2).mean())
 
 
 anomaly(np.zeros((1, n_feat), dtype=np.float32))  # warm-up
@@ -85,7 +76,7 @@ class Inference(pbg.InferenceServicer):
 if __name__ == "__main__":
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     pbg.add_InferenceServicer_to_server(Inference(), server)
-    server.add_insecure_port("127.0.0.1:50051")
+    server.add_insecure_port(os.environ.get("NS_ML_BIND", "127.0.0.1:50051"))
     server.start()
     print("inference server listening on 127.0.0.1:50051 | ensemble:", ENSEMBLE, flush=True)
     server.wait_for_termination()

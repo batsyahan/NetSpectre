@@ -1,0 +1,14 @@
+.venv
+data
+catboost_info
+__pycache__
+*.bak
+*.bak2
+models/*
+!models/classes.json
+!models/feature_cols_35.json
+!models/multiclass_xgb35.onnx
+!models/multiclass_xgb35.json
+!models/multiclass_cat35.onnx
+!models/ae35.onnx
+!models/ae35_meta.json
