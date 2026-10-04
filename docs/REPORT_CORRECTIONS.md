@@ -11,7 +11,7 @@ Reason: the evaluation was a single temporal split, the feature set has 35 featu
 
 ## 2. Feature selection (replace "top 100 features by Information Gain Ratio")
 
-> The flow extractor computes 35 CICFlowMeter-compatible features. Five TCP flag-count features (SYN, FIN, RST, PSH, ACK counts) were removed because they behave as a dataset artifact in CICIDS2017: they let a model separate attack traffic by how the dataset was captured rather than by attack behaviour, and they would not transfer to live traffic. [Insert the numbers from ml/ablate_flags.py and ml/check_leakage.py here.]
+> The flow extractor computes 35 CICFlowMeter-compatible features: the original 40 minus five TCP flag-count features (SYN, FIN, RST, PSH, ACK counts). An ablation on the temporal test split shows the removal costs no accuracy: macro F1 is 0.851 with the flag counts and 0.852 without them (same XGBoost settings; ml/ablate_flags.py and ml/eval_final.py). The flag counts were removed because [CONFIRM AND FILL IN: the reason you observed with live capture, e.g. flows captured by our own extractor did not reproduce the dataset's flag-count values, so a model relying on them did not transfer to live traffic].
 
 ## 3. Replace Table 6.1 (attack catalogue)
 
