@@ -170,6 +170,9 @@ export default function App() {
               ))}
             </select>
           </label>
+          <a className="export" href="/api/alerts/export" download>
+            Export CSV
+          </a>
           <span className="shown">
             Showing {shown.length} of {alerts.length}
           </span>

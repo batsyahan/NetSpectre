@@ -402,6 +402,49 @@ async fn api_devices() -> Result<axum::Json<Vec<serde_json::Value>>, axum::http:
     Ok(axum::Json(rows))
 }
 
+async fn api_export() -> Result<impl axum::response::IntoResponse, axum::http::StatusCode> {
+    use axum::http::{header, StatusCode};
+    let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
+    let db = rusqlite::Connection::open(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .prepare("SELECT id, ts_utc, src_ip, label, flow_count, avg_confidence, status, explanation FROM alerts ORDER BY id DESC")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let esc = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
+    let mut out = String::from("id,time_utc,source_ip,attack,flows,confidence,status,reasons\n");
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, f64>(5)?,
+                r.get::<_, String>(6)?,
+                r.get::<_, Option<String>>(7)?,
+            ))
+        })
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    for row in rows {
+        let (id, ts, ip, label, n, conf, st, ex) = row.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let reasons = ex
+            .and_then(|e| serde_json::from_str::<Vec<serde_json::Value>>(&e).ok())
+            .map(|v| v.iter().filter_map(|x| x["text"].as_str()).collect::<Vec<_>>().join("; "))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "{id},{},{},{},{n},{conf:.3},{},{}\n",
+            esc(&ts), esc(&ip), esc(&label), esc(&st), esc(&reasons)
+        ));
+    }
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (header::CONTENT_DISPOSITION, "attachment; filename=\"netspectre_alerts.csv\""),
+        ],
+        out,
+    ))
+}
+
 async fn run_api() {
     let _ = open_db(); // make sure the schema exists
     let app = axum::Router::new()
@@ -409,6 +452,7 @@ async fn run_api() {
         .route("/api/alerts", axum::routing::get(api_alerts))
         .route("/api/alerts/status", axum::routing::post(api_set_status))
         .route("/api/devices", axum::routing::get(api_devices))
+        .route("/api/alerts/export", axum::routing::get(api_export))
         .layer(tower_http::cors::CorsLayer::permissive());
     let addr = env::var("NS_API_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind api address");

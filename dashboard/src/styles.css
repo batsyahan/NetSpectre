@@ -72,3 +72,18 @@ tr.dim td.actions { opacity: 1; }
   color: #f87171;
   font-weight: 600;
 }
+
+.filters .export {
+  margin-left: auto;
+  color: #60a5fa;
+  text-decoration: none;
+  border: 1px solid #2a313c;
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+.filters .export:hover {
+  background: #161b22;
+}
+.filters .export + .shown {
+  margin-left: 0;
+}
