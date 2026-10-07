@@ -36,3 +36,12 @@ Target: 50 ms. The ARM64 figures come from an emulator, not from a Raspberry Pi 
 - Result: 0 alerts from the classifier (no attack class), 3 "Anomaly (unknown)" alerts from the autoencoder (5-6 flows each, confidence about 0.5, i.e. just above the 0.2369 threshold).
 - Reading: the classifier did not confuse this traffic with any known attack. The autoencoder flagged at least 16 of 1,784 flows (about 1% or more), consistent with its 1% design threshold but clustered, so alerts form. Under dense synthetic load this is roughly 1-2 low-confidence anomaly alerts per minute.
 - Implication: the anomaly threshold needs per-network calibration (or a higher default / minimum confidence) before unattended use. Traffic is synthetic and from one client type; this is not a household false-alarm rate.
+
+### Which request type triggers the anomaly alerts? (one 20 s trial each, 4 clients)
+| Request | Requests | New anomaly alerts |
+|---|---|---|
+| /api/health (tiny) | 284 | 0 |
+| / (dashboard page) | 291 | 0 |
+| /api/alerts?limit=50 (medium JSON) | 282 | 1 (5 flows) |
+| /api/alerts/export (CSV) | 280 | 0 |
+Single short trial per path: suggestive only (a medium-sized response may look unlike the 2017 benign data), not confirmed. Does not change the conclusion that the anomaly threshold needs per-network calibration.
