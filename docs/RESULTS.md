@@ -30,3 +30,9 @@ Target: 50 ms. The ARM64 figures come from an emulator, not from a Raspberry Pi 
 - Setup: 300 ordinary HTTP GET requests (0.2 s apart) from a container to the dashboard over the Docker bridge, captured by the live monitor and classified by the deployed models.
 - Result: 300/300 requests completed, 0 alerts raised.
 - Caveat: one traffic type, one server, one client. This is a sanity check, not a false-alarm rate. The dataset figure (0.17% of benign test flows misclassified) remains the quantitative estimate; a realistic home-traffic mix (streaming, DNS, calls, IoT) has not been tested.
+
+## Mixed-traffic false-alert check (2 minutes, 8 parallel clients)
+- Setup: 8 threads from a container sent random requests to the dashboard server over the Docker bridge (small API calls up to the CSV export, random 0.05-1.0 s pauses). 1,784 requests, 0 errors, about 6.4 MB.
+- Result: 0 alerts from the classifier (no attack class), 3 "Anomaly (unknown)" alerts from the autoencoder (5-6 flows each, confidence about 0.5, i.e. just above the 0.2369 threshold).
+- Reading: the classifier did not confuse this traffic with any known attack. The autoencoder flagged at least 16 of 1,784 flows (about 1% or more), consistent with its 1% design threshold but clustered, so alerts form. Under dense synthetic load this is roughly 1-2 low-confidence anomaly alerts per minute.
+- Implication: the anomaly threshold needs per-network calibration (or a higher default / minimum confidence) before unattended use. Traffic is synthetic and from one client type; this is not a household false-alarm rate.
