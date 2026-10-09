@@ -234,6 +234,14 @@ impl Flow {
 static TX: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<pb::FlowFeatures>> =
     std::sync::OnceLock::new();
 
+// Wakes /api/stream listeners whenever a new alert is stored.
+static ALERT_BUS: std::sync::OnceLock<tokio::sync::broadcast::Sender<()>> =
+    std::sync::OnceLock::new();
+
+fn alert_bus() -> &'static tokio::sync::broadcast::Sender<()> {
+    ALERT_BUS.get_or_init(|| tokio::sync::broadcast::channel(16).0)
+}
+
 fn emit(f: &Flow) {
     let (s, d) = (f.src.unwrap(), f.dst.unwrap());
     let req = pb::FlowFeatures {
@@ -467,6 +475,15 @@ async fn require_token(
     next.run(req).await
 }
 
+async fn api_stream() -> axum::response::sse::Sse<
+    impl tokio_stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+> {
+    use tokio_stream::StreamExt;
+    let stream = tokio_stream::wrappers::BroadcastStream::new(alert_bus().subscribe())
+        .map(|_| Ok(axum::response::sse::Event::default().event("alert").data("new")));
+    axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
+}
+
 async fn run_api() {
     let _ = open_db(); // make sure the schema exists
     let app = axum::Router::new()
@@ -475,6 +492,7 @@ async fn run_api() {
         .route("/api/alerts/status", axum::routing::post(api_set_status))
         .route("/api/devices", axum::routing::get(api_devices))
         .route("/api/alerts/export", axum::routing::get(api_export))
+        .route("/api/stream", axum::routing::get(api_stream))
         .layer(axum::middleware::from_fn(require_token))
         .layer(tower_http::cors::CorsLayer::permissive());
     let addr = env::var("NS_API_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
@@ -577,6 +595,8 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
                 rusqlite::params![src, label, count as i64, avg as f64, reasons_json],
             ) {
                 eprintln!("db error: {e}");
+            } else {
+                let _ = alert_bus().send(());
             }
         }
     }

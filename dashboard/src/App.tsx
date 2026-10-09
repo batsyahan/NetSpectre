@@ -66,9 +66,13 @@ export default function App() {
       }
     };
     load();
-    const t = setInterval(load, 3000);
+    // Live push: reload as soon as the monitor stores a new alert. Polling stays as a slow fallback.
+    const es = new EventSource("/api/stream");
+    es.addEventListener("alert", () => load());
+    const t = setInterval(load, 10000);
     return () => {
       stop = true;
+      es.close();
       clearInterval(t);
     };
   }, []);
