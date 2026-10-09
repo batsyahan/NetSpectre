@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { severityOf } from "./lib";
 
 interface Device {
   ip: string;
@@ -19,25 +20,6 @@ interface Alert {
   explanation?: { feature: string; text: string; weight: number }[];
 }
 
-const SEVERITY: Record<string, "critical" | "high" | "medium"> = {
-  DDoS: "critical",
-  Bot: "critical",
-  Infiltration: "critical",
-  Heartbleed: "critical",
-  "DoS Hulk": "high",
-  "DoS GoldenEye": "high",
-  "DoS Slowhttptest": "high",
-  "DoS slowloris": "high",
-  "SSH-Patator": "high",
-  "FTP-Patator": "medium",
-  PortScan: "medium",
-  "Web Attack - Brute Force": "high",
-  "Web Attack - Sql Injection": "high",
-  "Web Attack - XSS": "high",
-};
-// Unknown-anomaly alerts barely above the threshold (confidence < 0.6) are low severity
-const severityOf = (a: { label: string; avg_confidence: number }) =>
-  a.label === "Anomaly (unknown)" ? (a.avg_confidence < 0.6 ? "low" : "medium") : SEVERITY[a.label] ?? "medium";
 
 export default function App() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
