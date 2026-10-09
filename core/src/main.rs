@@ -242,6 +242,18 @@ fn alert_bus() -> &'static tokio::sync::broadcast::Sender<()> {
     ALERT_BUS.get_or_init(|| tokio::sync::broadcast::channel(16).0)
 }
 
+// Minimum confidence for rare, poorly-learned classes (override with NS_RARE_MIN_CONF).
+fn rare_min_conf() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        env::var("NS_RARE_MIN_CONF").ok().and_then(|v| v.parse().ok()).unwrap_or(0.8)
+    })
+}
+
+fn rare_class_blocked(label: &str, conf: f32, min: f32) -> bool {
+    matches!(label, "Heartbleed" | "Infiltration") && conf < min
+}
+
 fn emit(f: &Flow) {
     let (s, d) = (f.src.unwrap(), f.dst.unwrap());
     let req = pb::FlowFeatures {
@@ -554,6 +566,13 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
                 continue;
             }
         }
+        // Rare classes (few training flows) need stronger evidence before they may raise an alert.
+        if rare_class_blocked(&label, conf, rare_min_conf()) {
+            if verbose {
+                println!("skip  {src} -> port {dport}  {label} ({conf:.2}) below rare-class minimum");
+            }
+            continue;
+        }
         let key = (src.clone(), label.clone());
         let now = Instant::now();
         let h = hist.entry(key.clone()).or_default();
@@ -849,5 +868,29 @@ mod tests {
         assert!(!ct_eq("secret", "secreT"));
         assert!(!ct_eq("secret", "secret2"));
         assert!(!ct_eq("", "secret"));
+    }
+}
+
+#[cfg(test)]
+mod rare_class_tests {
+    use super::rare_class_blocked;
+
+    #[test]
+    fn weak_rare_class_is_blocked() {
+        assert!(rare_class_blocked("Heartbleed", 0.50, 0.8));
+        assert!(rare_class_blocked("Infiltration", 0.79, 0.8));
+    }
+
+    #[test]
+    fn strong_rare_class_passes() {
+        assert!(!rare_class_blocked("Heartbleed", 0.80, 0.8));
+        assert!(!rare_class_blocked("Infiltration", 0.99, 0.8));
+    }
+
+    #[test]
+    fn other_classes_are_never_blocked() {
+        assert!(!rare_class_blocked("PortScan", 0.30, 0.8));
+        assert!(!rare_class_blocked("DoS Hulk", 0.10, 0.8));
+        assert!(!rare_class_blocked("Anomaly (unknown)", 0.50, 0.8));
     }
 }
