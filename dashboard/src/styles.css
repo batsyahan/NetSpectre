@@ -30,6 +30,7 @@ tr:last-child td { border-bottom: 0; }
 .sev { padding: 2px 9px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
 .sev.critical { background: rgba(239, 100, 97, 0.18); color: var(--bad); }
 .sev.high { background: rgba(242, 184, 75, 0.18); color: var(--warn); }
+.sev.low { background: rgba(139, 149, 167, 0.18); color: #8b95a7; }
 .sev.medium { background: rgba(110, 168, 254, 0.18); color: #6ea8fe; }
 .empty { color: var(--muted); margin: 8px 0 0; }
 footer { color: var(--muted); font-size: 12px; margin-top: 12px; text-align: right; }

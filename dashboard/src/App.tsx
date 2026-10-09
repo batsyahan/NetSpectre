@@ -35,7 +35,9 @@ const SEVERITY: Record<string, "critical" | "high" | "medium"> = {
   "Web Attack - Sql Injection": "high",
   "Web Attack - XSS": "high",
 };
-const severityOf = (label: string) => SEVERITY[label] ?? "medium";
+// Unknown-anomaly alerts barely above the threshold (confidence < 0.6) are low severity
+const severityOf = (a: { label: string; avg_confidence: number }) =>
+  a.label === "Anomaly (unknown)" ? (a.avg_confidence < 0.6 ? "low" : "medium") : SEVERITY[a.label] ?? "medium";
 
 export default function App() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -200,7 +202,7 @@ export default function App() {
                 <tr key={a.id} className={a.status === "dismissed" ? "dim" : ""}>
                   <td>{fmt(a.ts_utc)}</td>
                   <td>
-                    <span className={`sev ${severityOf(a.label)}`}>{severityOf(a.label)}</span>
+                    <span className={`sev ${severityOf(a)}`}>{severityOf(a)}</span>
                   </td>
                   <td>
                     {a.label}
