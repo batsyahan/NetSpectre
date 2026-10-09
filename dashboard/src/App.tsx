@@ -66,10 +66,12 @@ export default function App() {
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [labelFilter, setLabelFilter] = useState("all");
+  const [deviceFilter, setDeviceFilter] = useState("all");
   const shown = alerts.filter(
     (a) =>
       (statusFilter === "all" || a.status === statusFilter) &&
-      (labelFilter === "all" || a.label === labelFilter),
+      (labelFilter === "all" || a.label === labelFilter) &&
+      (deviceFilter === "all" || a.src_ip === deviceFilter),
   );
 
   const setStatus = async (id: number, status: string) => {
@@ -122,7 +124,12 @@ export default function App() {
             </thead>
             <tbody>
               {devices.map((d) => (
-                <tr key={d.ip}>
+                <tr
+                  key={d.ip}
+                  className={`device-row${deviceFilter === d.ip ? " selected" : ""}`}
+                  title="Click to show only this device's alerts"
+                  onClick={() => setDeviceFilter(deviceFilter === d.ip ? "all" : d.ip)}
+                >
                   <td className="mono">{d.ip}</td>
                   <td>{fmt(d.first_seen)}</td>
                   <td>{fmt(d.last_seen)}</td>
@@ -158,6 +165,11 @@ export default function App() {
               ))}
             </select>
           </label>
+          {deviceFilter !== "all" && (
+            <button className="chip" onClick={() => setDeviceFilter("all")}>
+              Device: {deviceFilter} ✕
+            </button>
+          )}
           <a className="export" href="/api/alerts/export" download>
             Export CSV
           </a>
