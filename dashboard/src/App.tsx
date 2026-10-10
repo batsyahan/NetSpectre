@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { severityOf, summarize } from "./lib";
 
 interface Device {
@@ -177,7 +178,8 @@ export default function App() {
             </button>
           </div>
         )}
-        {summary && (
+        {summary &&
+          createPortal(
           <div className="report">
             <h1>NetSpectre incident report</h1>
             <p>
@@ -220,8 +222,9 @@ export default function App() {
               Generated automatically by NetSpectre. Alerts are machine-learning predictions, not confirmed
               incidents; confidence is the model&apos;s own estimate and may include false positives.
             </p>
-          </div>
-        )}
+          </div>,
+          document.body,
+          )}
         <div className="filters">
           <label>
             Status
