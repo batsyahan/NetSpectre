@@ -19,6 +19,8 @@ services:
       NS_ML_ADDR: http://127.0.0.1:50051
       NS_API_ADDR: 0.0.0.0:8080
       NS_API_TOKEN: ${NS_API_TOKEN:-}
+      NS_NTFY_TOPIC: ${NS_NTFY_TOPIC:-}
+      NS_NTFY_MIN_SEVERITY: ${NS_NTFY_MIN_SEVERITY:-medium}
       NS_ANOMALY_IGNORE: 10.255.255.254   # trusted sources (comma-separated), e.g. your router's DNS
     volumes:
       - ./data:/data

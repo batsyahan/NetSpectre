@@ -254,6 +254,73 @@ fn rare_class_blocked(label: &str, conf: f32, min: f32) -> bool {
     matches!(label, "Heartbleed" | "Infiltration") && conf < min
 }
 
+// ---- Optional phone notifications via ntfy (off unless NS_NTFY_TOPIC is set) ----
+// Severity rules mirror dashboard/src/lib.ts.
+fn severity_rank(label: &str, conf: f32) -> u8 {
+    match label {
+        "DDoS" | "Bot" | "Infiltration" | "Heartbleed" => 3,
+        "DoS Hulk" | "DoS GoldenEye" | "DoS Slowhttptest" | "DoS slowloris" | "SSH-Patator"
+        | "Web Attack - Brute Force" | "Web Attack - Sql Injection" | "Web Attack - XSS" => 2,
+        "Anomaly (unknown)" => {
+            if conf < 0.6 {
+                0
+            } else {
+                1
+            }
+        }
+        _ => 1,
+    }
+}
+
+fn severity_name(rank: u8) -> &'static str {
+    match rank {
+        0 => "low",
+        1 => "medium",
+        2 => "high",
+        _ => "critical",
+    }
+}
+
+fn parse_min_severity(s: &str) -> u8 {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "low" => 0,
+        "high" => 2,
+        "critical" => 3,
+        _ => 1,
+    }
+}
+
+fn notify_phone(src: &str, label: &str, count: usize, unit: &str, avg: f32) {
+    let topic = match env::var("NS_NTFY_TOPIC") {
+        Ok(t) if !t.trim().is_empty() => t.trim().to_string(),
+        _ => return,
+    };
+    let min = parse_min_severity(&env::var("NS_NTFY_MIN_SEVERITY").unwrap_or_default());
+    let rank = severity_rank(label, avg);
+    if rank < min {
+        return;
+    }
+    let server = env::var("NS_NTFY_SERVER").unwrap_or_else(|_| "https://ntfy.sh".to_string());
+    let url = format!("{}/{}", server.trim_end_matches('/'), topic);
+    let title = format!("NetSpectre: {} ({})", label, severity_name(rank));
+    let body = format!("{src} | {count} {unit} in 10s | confidence {:.0}%", avg * 100.0);
+    let priority = match rank {
+        3 => "urgent",
+        2 => "high",
+        _ => "default",
+    };
+    // Separate thread so a slow network never delays flow processing.
+    std::thread::spawn(move || {
+        let res = ureq::post(url.as_str())
+            .header("Title", title.as_str())
+            .header("Priority", priority)
+            .send(body.as_str());
+        if let Err(e) = res {
+            eprintln!("ntfy error: {e}");
+        }
+    });
+}
+
 fn emit(f: &Flow) {
     let (s, d) = (f.src.unwrap(), f.dst.unwrap());
     let req = pb::FlowFeatures {
@@ -618,6 +685,7 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
                 eprintln!("db error: {e}");
             } else {
                 let _ = alert_bus().send(());
+                notify_phone(&src, &label, count, unit, avg);
             }
         }
     }
@@ -894,5 +962,41 @@ mod rare_class_tests {
         assert!(!rare_class_blocked("PortScan", 0.30, 0.8));
         assert!(!rare_class_blocked("DoS Hulk", 0.10, 0.8));
         assert!(!rare_class_blocked("Anomaly (unknown)", 0.50, 0.8));
+    }
+}
+
+#[cfg(test)]
+mod notify_tests {
+    use super::{parse_min_severity, severity_name, severity_rank};
+
+    #[test]
+    fn ranks_match_dashboard_rules() {
+        assert_eq!(severity_rank("Heartbleed", 0.9), 3);
+        assert_eq!(severity_rank("DoS Hulk", 0.9), 2);
+        assert_eq!(severity_rank("PortScan", 0.9), 1);
+        assert_eq!(severity_rank("FTP-Patator", 0.9), 1);
+        assert_eq!(severity_rank("SomethingNew", 0.9), 1);
+    }
+
+    #[test]
+    fn weak_anomaly_is_low_strong_is_medium() {
+        assert_eq!(severity_rank("Anomaly (unknown)", 0.5), 0);
+        assert_eq!(severity_rank("Anomaly (unknown)", 0.6), 1);
+    }
+
+    #[test]
+    fn min_severity_parsing() {
+        assert_eq!(parse_min_severity("high"), 2);
+        assert_eq!(parse_min_severity(" HIGH "), 2);
+        assert_eq!(parse_min_severity("critical"), 3);
+        assert_eq!(parse_min_severity("low"), 0);
+        assert_eq!(parse_min_severity(""), 1);
+        assert_eq!(parse_min_severity("garbage"), 1);
+    }
+
+    #[test]
+    fn names() {
+        assert_eq!(severity_name(0), "low");
+        assert_eq!(severity_name(3), "critical");
     }
 }
