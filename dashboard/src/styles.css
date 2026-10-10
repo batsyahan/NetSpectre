@@ -101,3 +101,16 @@ tr.dim td.actions { opacity: 1; }
   font: inherit;
   cursor: pointer;
 }
+
+.device-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(90, 140, 255, 0.35);
+  border-radius: 8px;
+  background: rgba(90, 140, 255, 0.08);
+}
+.device-summary .by-label { opacity: 0.8; }
