@@ -3,6 +3,7 @@
 **ML-based intrusion detection for home networks.** NetSpectre captures live traffic, turns each network flow into 35 features, classifies it with an XGBoost + CatBoost ensemble trained on CICIDS2017, flags traffic that matches no known attack with an autoencoder, and shows plain-language reasons for every alert on a web dashboard and an Android/iOS app.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/batsyahan/NetSpectre/actions/workflows/ci.yml/badge.svg)](https://github.com/batsyahan/NetSpectre/actions/workflows/ci.yml)
 
 ## Architecture
 
@@ -42,6 +43,36 @@ docker compose up -d --build
 - The monitor captures on `lo` by default. To watch a real interface: `NS_IFACE=eth0 docker compose up -d monitor`.
 - Trusted sources that should not raise anomaly alerts: `NS_ANOMALY_IGNORE` in `docker-compose.yml`.
 
+### Configuration
+
+Settings are environment variables. Put secrets in the git-ignored `.env`; `docker-compose.yml` passes them to the monitor.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NS_IFACE` | `lo` | Network interface the monitor captures on. |
+| `NS_API_TOKEN` | empty | Token (`x-api-token` header) required from non-loopback API clients, such as the phone app. |
+| `NS_ANOMALY_IGNORE` | see compose file | Trusted source IPs that never raise "Anomaly (unknown)" alerts. |
+| `NS_AE_THRESHOLD` | 0.2369 | Autoencoder reconstruction-error threshold (calibrated for ~1% false alarms on benign traffic). |
+| `NS_RARE_MIN_CONF` | 0.8 | Minimum model confidence before Heartbleed or Infiltration flows may count toward an alert. These classes have very few training flows, so weak detections are ignored. |
+| `NS_NTFY_TOPIC` | empty (off) | Enables phone notifications through [ntfy](https://ntfy.sh). Use a long random topic name and treat it like a password. |
+| `NS_NTFY_MIN_SEVERITY` | `medium` | Lowest severity that sends a phone notification: `low`, `medium`, `high` or `critical`. |
+| `NS_NTFY_SERVER` | `https://ntfy.sh` | ntfy server; point this at your own server to keep alerts off third-party infrastructure. |
+
+Phone notifications send only the attack type, severity, source IP, flow count and confidence. The ntfy server operator can see that text, so self-host ntfy if that matters for your network.
+
+### REST API
+
+The monitor serves a JSON API on port 8080 (token required except from loopback).
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/health` | Liveness check. |
+| `GET /api/alerts?limit=N&src_ip=IP` | Newest alerts first; `src_ip` limits the result to one device (default limit 50, maximum 500). |
+| `POST /api/alerts/status` | Acknowledge, dismiss or reopen an alert. |
+| `GET /api/devices` | Device inventory with flow and alert counts. |
+| `GET /api/alerts/export` | All alerts as CSV. |
+| `GET /api/stream` | Server-sent events; emits an `alert` event whenever a new alert is stored, so the dashboard updates instantly. |
+
 ### Mobile app
 
 ```bash
@@ -64,6 +95,8 @@ Open the QR code in Expo Go on a phone on the same Wi-Fi.
 6. Point out the anomaly alerts ("Anomaly (unknown)"), which come from the autoencoder and not from the classifier.
 
 ## Tests
+
+GitHub Actions runs the Rust, dashboard and ML test suites on every push (see the CI badge above).
 
 ```bash
 cd core && cargo test                 # 10 Rust unit tests (parser, flow features, statistics, token check)
