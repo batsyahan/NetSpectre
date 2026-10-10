@@ -346,13 +346,15 @@ async fn api_alerts(
 ) -> Result<axum::Json<Vec<AlertRow>>, axum::http::StatusCode> {
     use axum::http::StatusCode;
     let limit: i64 = q.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50).clamp(1, 500);
+    // Optional per-device filter (empty string = all devices); passed as a bound parameter.
+    let ip = q.get("src_ip").cloned().unwrap_or_default();
     let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
     let db = rusqlite::Connection::open(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut stmt = db
-        .prepare("SELECT id, ts_utc, src_ip, label, flow_count, avg_confidence, status, explanation FROM alerts ORDER BY id DESC LIMIT ?1")
+        .prepare("SELECT id, ts_utc, src_ip, label, flow_count, avg_confidence, status, explanation FROM alerts WHERE (?2 = '' OR src_ip = ?2) ORDER BY id DESC LIMIT ?1")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rows = stmt
-        .query_map([limit], |r| {
+        .query_map(rusqlite::params![limit, ip], |r| {
             Ok(AlertRow {
                 id: r.get(0)?,
                 ts_utc: r.get(1)?,
