@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    name: Rust monitor tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages (protoc, libpcap)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler libpcap-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: cargo test
+        working-directory: core
+        run: cargo test --locked
+
+  dashboard:
+    name: Dashboard type-check and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install
+        working-directory: dashboard
+        run: npm ci
+      - name: Type-check
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Unit tests
+        working-directory: dashboard
+        run: npm test
