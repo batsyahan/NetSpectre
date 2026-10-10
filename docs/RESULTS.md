@@ -45,3 +45,23 @@ Target: 50 ms. The ARM64 figures come from an emulator, not from a Raspberry Pi 
 | /api/alerts?limit=50 (medium JSON) | 282 | 1 (5 flows) |
 | /api/alerts/export (CSV) | 280 | 0 |
 Single short trial per path: suggestive only (a medium-sized response may look unlike the 2017 benign data), not confirmed. Does not change the conclusion that the anomaly threshold needs per-network calibration.
+
+## Observed during development (9-10 Oct 2026)
+
+### Critical false positive: Heartbleed on a package download
+- What happened: while a Docker image build downloaded npm packages from a container on the `docker0` bridge, the monitor raised a critical "Heartbleed" alert (3 flows, average confidence 0.50). The explanation was dominated by "largest reply payload of 44208 bytes" (97%).
+- Likely cause (not confirmed): a large encrypted download resembles the Heartbleed class, which has very few training flows in CICIDS2017, so the classifier is unreliable at low confidence for it.
+- Mitigation: flows labelled Heartbleed or Infiltration only count toward an alert when model confidence is at least 0.8 (`NS_RARE_MIN_CONF`). The rule is unit-tested (3 tests). A later rebuild with the same download produced no Heartbleed alert, but that is a single run, not proof.
+- Trade-off: a genuine but weakly scored Heartbleed or Infiltration attack would now be missed. Only one false alert of this kind was observed, so the 0.8 value is a judgement, not a tuned figure.
+
+### Anomaly alerts on package downloads
+- During builds and package downloads from the same container, the autoencoder raised 5 "Anomaly (unknown)" alerts over about half an hour (confidence 0.66 to 0.80, 5 flows each). Large software downloads look unusual compared with the 2017 benign traffic.
+- Because they are rated medium, they also trigger phone notifications at the default `NS_NTFY_MIN_SEVERITY=medium`. Raising it to `high` silences them (and also PortScan, which is rated medium).
+
+### Device inventory includes remote servers
+- The device list shows external addresses (for example CDN servers such as 104.16.x.x and 151.101.158.137) as "devices" because every flow source is recorded. There is no local-network filter yet, so on a busy network the list will grow with internet hosts.
+
+### End-to-end checks
+- Live alert push: the `/api/stream` endpoint emitted an `alert` event for each alert raised by the smoke-test scan, with keep-alive comments every 15 s; the dashboard updates without waiting for its 10 s fallback poll.
+- Phone alerts: after the smoke-test port scan, two ntfy notifications reached an Android phone (PortScan, 10 ports, 86% confidence; "Anomaly (unknown)", 5 flows, 100%). Delivery latency was not measured.
+- Automated tests: 35 tests (17 Rust, 8 dashboard, 10 ML service) run on GitHub Actions for every push; all passed on a clean GitHub-hosted runner.
