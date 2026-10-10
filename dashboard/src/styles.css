@@ -114,3 +114,16 @@ tr.dim td.actions { opacity: 1; }
   background: rgba(90, 140, 255, 0.08);
 }
 .device-summary .by-label { opacity: 0.8; }
+
+.report { display: none; }
+@media print {
+  html, body { background: #fff !important; }
+  body * { visibility: hidden; }
+  .report, .report * { visibility: visible; }
+  .report { display: block; position: absolute; left: 0; top: 0; width: 100%; padding: 16px; color: #000; background: #fff; }
+  .report h1 { font-size: 20px; margin: 0 0 8px; }
+  .report p { margin: 4px 0; font-size: 12px; }
+  .report table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 10px; }
+  .report th, .report td { border: 1px solid #999; padding: 3px 5px; text-align: left; vertical-align: top; }
+  .report .note { margin-top: 12px; font-style: italic; }
+}

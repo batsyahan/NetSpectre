@@ -172,6 +172,54 @@ export default function App() {
             {summary.first && <span>first {fmt(summary.first)}</span>}
             {summary.last && <span>latest {fmt(summary.last)}</span>}
             <span className="by-label">{summary.byLabel.map(([l, n]) => `${l} ×${n}`).join(" · ")}</span>
+            <button className="chip" onClick={() => window.print()}>
+              Print / save incident report (PDF)
+            </button>
+          </div>
+        )}
+        {summary && (
+          <div className="report">
+            <h1>NetSpectre incident report</h1>
+            <p>
+              Device <strong>{deviceFilter}</strong> · generated{" "}
+              {new Date().toLocaleString("en-IN", { hour12: false })}
+            </p>
+            <p>
+              {summary.total} alerts · highest severity <strong>{summary.top ?? "none"}</strong>
+              {summary.first && <> · first alert {fmt(summary.first)}</>}
+              {summary.last && <> · latest alert {fmt(summary.last)}</>}
+            </p>
+            <p>By attack type: {summary.byLabel.map(([l, n]) => `${l} ×${n}`).join(" · ")}</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Severity</th>
+                  <th>Attack</th>
+                  <th>Flows</th>
+                  <th>Confidence</th>
+                  <th>Status</th>
+                  <th>Main reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deviceAlerts.map((a) => (
+                  <tr key={a.id}>
+                    <td>{fmt(a.ts_utc)}</td>
+                    <td>{severityOf(a)}</td>
+                    <td>{a.label}</td>
+                    <td>{a.flow_count}</td>
+                    <td>{Math.round(a.avg_confidence * 100)}%</td>
+                    <td>{a.status}</td>
+                    <td>{a.explanation?.[0]?.text ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="note">
+              Generated automatically by NetSpectre. Alerts are machine-learning predictions, not confirmed
+              incidents; confidence is the model&apos;s own estimate and may include false positives.
+            </p>
           </div>
         )}
         <div className="filters">
