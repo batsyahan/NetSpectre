@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { severityOf } from "./lib";
+import { severityOf, summarize } from "./lib";
 
 interface Device {
   ip: string;
@@ -67,7 +67,27 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [labelFilter, setLabelFilter] = useState("all");
   const [deviceFilter, setDeviceFilter] = useState("all");
-  const shown = alerts.filter(
+  // When a device is selected, load that device's own alert history (not just the latest 50 overall).
+  const [deviceAlerts, setDeviceAlerts] = useState<Alert[]>([]);
+  useEffect(() => {
+    if (deviceFilter === "all") {
+      setDeviceAlerts([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/alerts?limit=500&src_ip=${encodeURIComponent(deviceFilter)}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: Alert[]) => {
+        if (!cancelled) setDeviceAlerts(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceFilter, alerts]);
+  const base = deviceFilter === "all" ? alerts : deviceAlerts;
+  const summary = deviceFilter === "all" ? null : summarize(deviceAlerts);
+  const shown = base.filter(
     (a) =>
       (statusFilter === "all" || a.status === statusFilter) &&
       (labelFilter === "all" || a.label === labelFilter) &&
@@ -144,6 +164,16 @@ export default function App() {
 
       <section className="panel">
         <h2>Alerts</h2>
+        {summary && (
+          <div className="device-summary">
+            <strong className="mono">{deviceFilter}</strong>
+            <span>{summary.total} alerts</span>
+            {summary.top && <span className={`sev ${summary.top}`}>{summary.top}</span>}
+            {summary.first && <span>first {fmt(summary.first)}</span>}
+            {summary.last && <span>latest {fmt(summary.last)}</span>}
+            <span className="by-label">{summary.byLabel.map(([l, n]) => `${l} ×${n}`).join(" · ")}</span>
+          </div>
+        )}
         <div className="filters">
           <label>
             Status
@@ -158,7 +188,7 @@ export default function App() {
             Attack
             <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)}>
               <option value="all">All</option>
-              {[...counts.keys()].sort().map((l) => (
+              {[...new Set(base.map((a) => a.label))].sort().map((l) => (
                 <option key={l} value={l}>
                   {l}
                 </option>
@@ -174,7 +204,7 @@ export default function App() {
             Export CSV
           </a>
           <span className="shown">
-            Showing {shown.length} of {alerts.length}
+            Showing {shown.length} of {base.length}
           </span>
         </div>
         {alerts.length === 0 ? (
