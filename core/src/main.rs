@@ -355,6 +355,8 @@ fn open_db() -> rusqlite::Connection {
         let _ = std::fs::create_dir_all(dir);
     }
     let db = rusqlite::Connection::open(&path).expect("open db");
+    let _ = db.pragma_update(None, "journal_mode", "WAL");
+    let _ = db.pragma_update(None, "synchronous", "NORMAL");
     db.execute_batch(
         "CREATE TABLE IF NOT EXISTS alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -741,6 +743,7 @@ fn main() {
         .expect("device error")
         .promisc(true)
         .snaplen(65535)
+        .buffer_size(64 * 1024 * 1024)
         .timeout(500)
         .immediate_mode(true)
         .open()
@@ -755,6 +758,7 @@ fn main() {
     let mut flows: HashMap<Key, Flow> = HashMap::new();
     let mut last_sweep = Instant::now();
     let mut closed: HashMap<Key, Instant> = HashMap::new();
+    let mut last_dropped: u32 = 0;
     loop {
         match cap.next_packet() {
             Ok(pk) => {
@@ -785,6 +789,12 @@ fn main() {
         }
         if last_sweep.elapsed() >= Duration::from_secs(1) {
             last_sweep = Instant::now();
+            if let Ok(st) = cap.stats() {
+                if st.dropped > last_dropped {
+                    eprintln!("warning: kernel dropped {} packets so far (received {})", st.dropped, st.received);
+                    last_dropped = st.dropped;
+                }
+            }
             closed.retain(|_, t| t.elapsed() < Duration::from_secs(10));
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
