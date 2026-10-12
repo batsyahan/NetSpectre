@@ -16,3 +16,6 @@ models/*
 !models/classes_v2.json
 !models/multiclass_xgb35_v2.onnx
 !models/multiclass_xgb35_v2.json
+
+!models/multiclass_xgb35_v3.onnx
+!models/multiclass_xgb35_v3.json
