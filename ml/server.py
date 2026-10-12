@@ -12,6 +12,7 @@ classes = json.load(open("models/classes.json"))
 n_feat = len(json.load(open("models/feature_cols_35.json")))
 import os
 ENSEMBLE = os.environ.get("NS_ENSEMBLE", "1") == "1"
+LOG_PATH = os.environ.get("NS_LOG_FLOWS", "")
 sess_x = ort.InferenceSession("models/multiclass_xgb35.onnx")
 sess_c = ort.InferenceSession("models/multiclass_cat35.onnx")
 import xgboost as xgb
@@ -47,6 +48,9 @@ def classify(features):
     if len(features) != n_feat:
         raise ValueError(f"expected {n_feat} features, got {len(features)}")
     x = np.array([features], dtype=np.float32)
+    if LOG_PATH:
+        with open(LOG_PATH, "a") as f:
+            f.write(",".join(f"{v:.6g}" for v in features) + "\n")
     p = probs(sess_x, x)
     if ENSEMBLE:
         p = (p + probs(sess_c, x)) / 2
