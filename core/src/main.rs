@@ -727,10 +727,38 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
     }
 }
 
+// Privacy policy promises at most NS_RETENTION_DAYS (default 30) of alerts and devices.
+fn purge_old(days: u32) -> (usize, usize) {
+    let db = open_db();
+    let cut = format!("-{days} days");
+    let a = db
+        .execute("DELETE FROM alerts WHERE ts_utc < strftime('%Y-%m-%dT%H:%M:%SZ','now',?1)", [&cut])
+        .unwrap_or(0);
+    let d = db
+        .execute("DELETE FROM devices WHERE last_seen < strftime('%Y-%m-%dT%H:%M:%SZ','now',?1)", [&cut])
+        .unwrap_or(0);
+    (a, d)
+}
+
+fn start_retention() {
+    let days: u32 = env::var("NS_RETENTION_DAYS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
+    if days == 0 {
+        return;
+    }
+    std::thread::spawn(move || loop {
+        let (a, d) = purge_old(days);
+        if a + d > 0 {
+            eprintln!("retention: removed {a} alerts and {d} devices older than {days} days");
+        }
+        std::thread::sleep(std::time::Duration::from_secs(3600));
+    });
+}
+
 fn main() {
     let iface = env::args().nth(1).unwrap_or_else(|| "eth0".to_string());
     let filter = env::args().nth(2).filter(|f| f != "-");
     let idle_us: u64 = env::args().nth(3).and_then(|s| s.parse::<u64>().ok()).unwrap_or(5) * 1_000_000;
+    start_retention();
     start_worker(env::var("NS_ML_ADDR").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string()));
 
     let dev = Device::list()
