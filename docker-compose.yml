@@ -22,6 +22,7 @@ services:
       NS_NTFY_TOPIC: ${NS_NTFY_TOPIC:-}
       NS_NTFY_MIN_SEVERITY: ${NS_NTFY_MIN_SEVERITY:-medium}
       NS_ANOMALY_IGNORE: 10.255.255.254   # trusted sources (comma-separated), e.g. your router's DNS
+      NS_AE_THRESHOLD: ${NS_AE_THRESHOLD:-0.5}
     volumes:
       - ./data:/data
     depends_on: [ml]
