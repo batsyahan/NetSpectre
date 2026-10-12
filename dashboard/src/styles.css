@@ -253,3 +253,20 @@ mark.confirm { background: #5a4a16; color: #ffe9a8; padding: 1px 5px; border-rad
   .report th, .report td { border: 1px solid #999; padding: 3px 5px; text-align: left; vertical-align: top; }
   .report .note { margin-top: 12px; font-style: italic; }
 }
+
+/* Attack Guide */
+.guide-notes { margin: 0; padding-left: 18px; display: grid; gap: 8px; color: #cdd6e2; font-size: 13.5px; line-height: 1.5; }
+.guide-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 18px; }
+.guide-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.guide-card header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.guide-card h3 { font-size: 15.5px; font-weight: 650; }
+.guide-card p { color: #cdd6e2; font-size: 13.5px; line-height: 1.5; margin: 0; }
+.guide-card .guide-example { color: var(--muted); }
+.guide-card .guide-example strong { color: #dbe2ec; font-weight: 600; }
+.guide-scores { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 2px 0 0; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.guide-scores dt { color: var(--muted); font-size: 11.5px; }
+.guide-scores dd { margin: 2px 0 0; font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.f1-good { color: var(--ok); }
+.f1-fair { color: var(--warn); }
+.f1-weak { color: var(--bad); }
+.guide-card .guide-note { color: var(--warn); font-size: 12.5px; }
