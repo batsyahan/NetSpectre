@@ -26,3 +26,4 @@ data/*
 !ml/requirements-server.txt
 .env
 mobile/.env.local
+baselines/

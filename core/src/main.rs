@@ -260,7 +260,7 @@ fn severity_rank(label: &str, conf: f32) -> u8 {
     match label {
         "DDoS" | "Bot" | "Infiltration" | "Heartbleed" => 3,
         "DoS Hulk" | "DoS GoldenEye" | "DoS Slowhttptest" | "DoS slowloris" | "SSH-Patator"
-        | "Web Attack - Brute Force" | "Web Attack - Sql Injection" | "Web Attack - XSS" => 2,
+        | "Web Attack" | "Web Attack - Brute Force" | "Web Attack - Sql Injection" | "Web Attack - XSS" => 2,
         "Anomaly (unknown)" => {
             if conf < 0.6 {
                 0
@@ -355,6 +355,8 @@ fn open_db() -> rusqlite::Connection {
         let _ = std::fs::create_dir_all(dir);
     }
     let db = rusqlite::Connection::open(&path).expect("open db");
+    let _ = db.pragma_update(None, "journal_mode", "WAL");
+    let _ = db.pragma_update(None, "synchronous", "NORMAL");
     db.execute_batch(
         "CREATE TABLE IF NOT EXISTS alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -556,6 +558,39 @@ async fn require_token(
     next.run(req).await
 }
 
+// Counts over ALL stored alerts (the alert list endpoint is capped), for the dashboard overview.
+async fn api_stats() -> Result<axum::Json<serde_json::Value>, axum::http::StatusCode> {
+    use axum::http::StatusCode;
+    let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
+    let db = rusqlite::Connection::open(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let one = |sql: &str| -> Result<i64, StatusCode> {
+        db.query_row(sql, [], |r| r.get(0)).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    };
+    let total = one("SELECT COUNT(*) FROM alerts")?;
+    let new_alerts = one("SELECT COUNT(*) FROM alerts WHERE status = 'new'")?;
+    let last_24h = one(
+        "SELECT COUNT(*) FROM alerts WHERE ts_utc >= strftime('%Y-%m-%dT%H:%M:%SZ','now','-1 day')",
+    )?;
+    let devices = one("SELECT COUNT(*) FROM devices")?;
+    let mut stmt = db
+        .prepare("SELECT label, COUNT(*) FROM alerts GROUP BY label ORDER BY COUNT(*) DESC, label")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let by_label: Vec<serde_json::Value> = stmt
+        .query_map([], |r| {
+            Ok(serde_json::json!({ "label": r.get::<_, String>(0)?, "count": r.get::<_, i64>(1)? }))
+        })
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(axum::Json(serde_json::json!({
+        "total": total,
+        "new": new_alerts,
+        "last_24h": last_24h,
+        "devices": devices,
+        "by_label": by_label,
+    })))
+}
+
 async fn api_stream() -> axum::response::sse::Sse<
     impl tokio_stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
 > {
@@ -574,6 +609,7 @@ async fn run_api() {
         .route("/api/devices", axum::routing::get(api_devices))
         .route("/api/alerts/export", axum::routing::get(api_export))
         .route("/api/stream", axum::routing::get(api_stream))
+        .route("/api/stats", axum::routing::get(api_stats))
         .layer(axum::middleware::from_fn(require_token))
         .layer(tower_http::cors::CorsLayer::permissive());
     let addr = env::var("NS_API_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
@@ -707,6 +743,7 @@ fn main() {
         .expect("device error")
         .promisc(true)
         .snaplen(65535)
+        .buffer_size(64 * 1024 * 1024)
         .timeout(500)
         .immediate_mode(true)
         .open()
@@ -721,6 +758,7 @@ fn main() {
     let mut flows: HashMap<Key, Flow> = HashMap::new();
     let mut last_sweep = Instant::now();
     let mut closed: HashMap<Key, Instant> = HashMap::new();
+    let mut last_dropped: u32 = 0;
     loop {
         match cap.next_packet() {
             Ok(pk) => {
@@ -751,6 +789,12 @@ fn main() {
         }
         if last_sweep.elapsed() >= Duration::from_secs(1) {
             last_sweep = Instant::now();
+            if let Ok(st) = cap.stats() {
+                if st.dropped > last_dropped {
+                    eprintln!("warning: kernel dropped {} packets so far (received {})", st.dropped, st.received);
+                    last_dropped = st.dropped;
+                }
+            }
             closed.retain(|_, t| t.elapsed() < Duration::from_secs(10));
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

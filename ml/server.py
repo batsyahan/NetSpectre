@@ -11,14 +11,15 @@ from gen import netspectre_pb2_grpc as pbg
 classes = json.load(open("models/classes.json"))
 n_feat = len(json.load(open("models/feature_cols_35.json")))
 import os
-ENSEMBLE = os.environ.get("NS_ENSEMBLE", "1") == "1"
-sess_x = ort.InferenceSession("models/multiclass_xgb35.onnx")
+ENSEMBLE = os.environ.get("NS_ENSEMBLE", "0") == "1"
+LOG_PATH = os.environ.get("NS_LOG_FLOWS", "")
+sess_x = ort.InferenceSession("models/multiclass_xgb35_v3.onnx")
 sess_c = ort.InferenceSession("models/multiclass_cat35.onnx")
 import xgboost as xgb
 from explain import explain
 FEATURES = json.load(open("models/feature_cols_35.json"))
 booster = xgb.Booster()
-booster.load_model("models/multiclass_xgb35.json")
+booster.load_model("models/multiclass_xgb35_v3.json")
 booster.predict(xgb.DMatrix(np.zeros((1, len(FEATURES)), dtype=np.float32)), pred_contribs=True)  # warm-up
 
 _meta = json.load(open("models/ae35_meta.json"))
@@ -47,6 +48,9 @@ def classify(features):
     if len(features) != n_feat:
         raise ValueError(f"expected {n_feat} features, got {len(features)}")
     x = np.array([features], dtype=np.float32)
+    if LOG_PATH:
+        with open(LOG_PATH, "a") as f:
+            f.write(",".join(f"{v:.6g}" for v in features) + "\n")
     p = probs(sess_x, x)
     if ENSEMBLE:
         p = (p + probs(sess_c, x)) / 2
