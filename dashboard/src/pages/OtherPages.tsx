@@ -1,7 +1,10 @@
 // Attack types, IP lookup, reports and settings pages.
 import { ALERT_LIMIT } from "../api";
 import { LookupForm, LookupResultPanel, useIpLookup } from "../components/lookup";
-import { Panel } from "../components/ui";
+import { Panel, MetricCard } from "../components/ui";
+import { IconShield, IconChart, IconFile, IconSearch } from "../components/icons";
+import { ATTACK_GUIDE, GUIDE_STATS } from "../attackGuide";
+import { SEVERITY } from "../lib";
 import { POLL_SECONDS, type Monitor } from "../data";
 import { attackColors, countByLabel, fmtTime, share, sum } from "../metrics";
 import { Link } from "../router";
@@ -185,6 +188,87 @@ export function SettingsPage({ m }: { m: Monitor }) {
           </table>
         </div>
       </Panel>
+    </>
+  );
+}
+
+const pct = (x: number) => `${(x * 100).toFixed(x >= 0.9995 ? 0 : 1)}%`;
+const f1Class = (f: number) => (f >= 0.9 ? "good" : f >= 0.7 ? "fair" : "weak");
+
+export function AttackGuidePage() {
+  return (
+    <>
+      <div className="metrics">
+        <MetricCard icon={<IconShield />} label="Classes detected" value={String(GUIDE_STATS.classes)} note="14 attack types plus normal traffic" />
+        <MetricCard icon={<IconChart />} label="Test accuracy" value={`${GUIDE_STATS.accuracy}%`} note={`${GUIDE_STATS.testFlows.toLocaleString("en-GB")} held-out flows`} />
+        <MetricCard icon={<IconSearch />} label="Macro F1" value={GUIDE_STATS.macroF1.toFixed(3)} note="Average over all classes, rare ones included" />
+        <MetricCard icon={<IconFile />} label="Normal flows flagged" value={`${GUIDE_STATS.benignFalsePositive}%`} note="Benign traffic wrongly marked as an attack" />
+      </div>
+
+      <Panel title="How these numbers were produced">
+        <ul className="guide-notes">
+          <li>
+            <strong>Training data:</strong> CICIDS2017, a public research capture of a lab network with labelled normal and attack
+            traffic. Each network connection (flow) is turned into {GUIDE_STATS.features} numbers such as duration, packet counts,
+            packet sizes and timing. The model never sees packet contents.
+          </li>
+          <li>
+            <strong>Model:</strong> XGBoost classifier. The deployed version was retrained with captured port scans and normal
+            traffic from this project&apos;s own network added. A separate autoencoder, trained on normal traffic only, raises
+            &quot;Anomaly (unknown)&quot; for traffic that looks unusual but matches none of these classes.
+          </li>
+          <li>
+            <strong>Test:</strong> trained on earlier capture days and tested on later days the model never saw, which is stricter than a
+            random split. Scores below are from the original XGBoost run on that split. Real home traffic differs from this dataset,
+            so live accuracy will be lower.
+          </li>
+          <li>
+            <strong>Reading the scores:</strong> precision is how many alerts of a class were correct; recall is how many real attacks
+            of that class were caught; F1 combines the two.
+          </li>
+        </ul>
+      </Panel>
+
+      <div className="guide-grid">
+        {ATTACK_GUIDE.map((a) => {
+          const sev = a.name === "BENIGN" ? null : SEVERITY[a.name] ?? "medium";
+          return (
+            <article key={a.name} className="guide-card">
+              <header>
+                <h3>{a.name === "BENIGN" ? "Benign (normal traffic)" : a.name}</h3>
+                {sev ? <span className={`tag sev-${sev}`}>{sev[0].toUpperCase() + sev.slice(1)}</span> : <span className="tag state-online">Normal</span>}
+              </header>
+              <p>{a.what}</p>
+              <p className="guide-example">
+                <strong>Example:</strong> {a.example}
+              </p>
+              <dl className="guide-scores">
+                <div>
+                  <dt>Precision</dt>
+                  <dd>{pct(a.precision)}</dd>
+                </div>
+                <div>
+                  <dt>Recall</dt>
+                  <dd>{pct(a.recall)}</dd>
+                </div>
+                <div>
+                  <dt>F1</dt>
+                  <dd className={`f1-${f1Class(a.f1)}`}>{a.f1.toFixed(2)}</dd>
+                </div>
+                <div>
+                  <dt>Test flows</dt>
+                  <dd>{a.support.toLocaleString("en-GB")}</dd>
+                </div>
+              </dl>
+              {a.note && <p className="guide-note">{a.note}</p>}
+            </article>
+          );
+        })}
+      </div>
+      <p className="caption">
+        Classes with fewer than 10 test flows (Infiltration, SQL injection, Heartbleed) have scores that are not statistically
+        meaningful. Source: docs/EVAL_TEST_SET.txt.
+      </p>
     </>
   );
 }

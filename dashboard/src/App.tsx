@@ -6,7 +6,7 @@ import { AlertsPage } from "./pages/AlertsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DevicesPage } from "./pages/DevicesPage";
 import { PrivacyPage, TermsPage } from "./pages/LegalPages";
-import { AttackTypesPage, IpLookupPage, ReportsPage, SettingsPage } from "./pages/OtherPages";
+import { AttackGuidePage, AttackTypesPage, IpLookupPage, ReportsPage, SettingsPage } from "./pages/OtherPages";
 import { Link, useLocation } from "./router";
 
 interface Route {
@@ -45,6 +45,11 @@ const ROUTES: Record<string, Route> = {
     title: "Reports",
     subtitle: "Export alerts and print incident reports",
     render: (m) => <ReportsPage m={m} />,
+  },
+  "/attack-guide": {
+    title: "Attack Guide",
+    subtitle: "What each detected attack is, and how well the model finds it",
+    render: () => <AttackGuidePage />,
   },
   "/settings": {
     title: "Settings",
