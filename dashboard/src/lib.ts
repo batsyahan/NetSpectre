@@ -11,6 +11,7 @@ export const SEVERITY: Record<string, "critical" | "high" | "medium"> = {
   "SSH-Patator": "high",
   "FTP-Patator": "medium",
   PortScan: "medium",
+  "Web Attack": "high",
   "Web Attack - Brute Force": "high",
   "Web Attack - Sql Injection": "high",
   "Web Attack - XSS": "high",
