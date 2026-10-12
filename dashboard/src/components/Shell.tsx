@@ -20,6 +20,7 @@ const NAV: { to: string; label: string; icon: ReactNode }[] = [
   { to: "/attack-types", label: "Attack Types", icon: <IconShield /> },
   { to: "/ip-lookup", label: "IP Lookup", icon: <IconSearch /> },
   { to: "/reports", label: "Reports", icon: <IconChart /> },
+  { to: "/attack-guide", label: "Attack Guide", icon: <IconFile /> },
   { to: "/settings", label: "Settings", icon: <IconSettings /> },
 ];
 
