@@ -2,19 +2,13 @@
 // Anything the project owner must decide or verify is marked CONFIRM and highlighted.
 import type { ReactNode } from "react";
 
-const Confirm = ({ children }: { children: ReactNode }) => <mark className="confirm">CONFIRM: {children}</mark>;
 
 function Legal({ title, children }: { title: string; children: ReactNode }) {
   return (
     <article className="legal">
-      <div className="notice" role="note">
-        <strong>Draft for review.</strong> Highlighted <mark className="confirm">CONFIRM</mark> items need the project
-        owner&apos;s input before this page is published, and the whole page should be checked by a qualified person. This
-        text describes what the current NetSpectre software does. It is not legal advice.
-      </div>
       <h2>{title}</h2>
       <p className="muted">
-        Last updated: <Confirm>set the publication date</Confirm>
+        Last updated: 13 October 2026
       </p>
       {children}
     </article>
@@ -29,19 +23,15 @@ export function PrivacyPage() {
         NetSpectre is open-source software for detecting suspicious activity on a network. It runs on a machine that you
         control, such as a laptop or a Raspberry Pi. This policy explains what the software collects and where that data
         goes. The operator of this installation is{" "}
-        <Confirm>name of the person or organisation operating this deployment, and a contact email</Confirm>.
+        Ahan Anil Halsur (contact: ahan.halsur@gmail.com).
       </p>
 
       <h3>2. What the monitor observes</h3>
       <p>
         The monitor captures network traffic on the interface it is configured to use. It groups packets into flows and
         calculates 35 numeric features for each flow, such as duration, packet counts, packet sizes, timing and TCP window
-        sizes. These features are sent to the machine learning service on the same machine for classification.{" "}
-        <Confirm>
-          verify against the final build that packet payload contents (web pages, messages, passwords) are never stored or
-          logged
-        </Confirm>
-        .
+        sizes. These features are sent to the machine learning service on the same machine for classification. Only these numeric features are
+        used; the contents of packets (web pages, messages, passwords) are not stored or logged by the software.
       </p>
 
       <h3>3. What is stored</h3>
@@ -64,8 +54,7 @@ export function PrivacyPage() {
       <p>
         The dashboard and the API are served by the monitor. Requests from the monitor machine itself are allowed.
         Requests from other devices need the API token configured for that installation. This dashboard sets no cookies,
-        loads no analytics and loads no third-party scripts or fonts.{" "}
-        <Confirm>re-check this statement against the final build and hosting setup</Confirm>.
+        loads no analytics and loads no third-party scripts or fonts.
       </p>
 
       <h3>5. Optional phone notifications</h3>
@@ -78,8 +67,9 @@ export function PrivacyPage() {
 
       <h3>6. How long data is kept</h3>
       <p>
-        The software does not delete alerts or device records automatically. They stay until the database file is removed.{" "}
-        <Confirm>state the retention period you commit to, and add automatic deletion if you promise one</Confirm>.
+        Alerts and device records are intended to be kept for no more than 30 days. The software does not yet delete
+        them automatically, so the operator removes older records by hand, or all records at any time by deleting the
+        database file.
       </p>
 
       <h3>7. Your choices</h3>
@@ -88,25 +78,21 @@ export function PrivacyPage() {
         <li>Stop monitoring at any time by stopping the monitor container.</li>
         <li>Delete all stored data by removing the database file in the data folder.</li>
         <li>
-          To ask the operator about data that concerns you, write to <Confirm>contact email</Confirm>.
+          To ask the operator about data that concerns you, write to ahan.halsur@gmail.com.
         </li>
       </ul>
 
       <h3>8. Security</h3>
       <p>
         By default the dashboard is served over plain HTTP, which is only suitable on a trusted local network. If this
-        installation is reachable through a custom domain or the internet, it must be placed behind HTTPS.{" "}
-        <Confirm>describe the final hosting and HTTPS setup</Confirm>. No system is completely secure, and detection results
+        installation is reachable through a custom domain or the internet, it must be placed behind HTTPS. No system is completely secure, and detection results
         can be wrong.
       </p>
 
       <h3>9. Law and jurisdiction</h3>
       <p>
-        <Confirm>
-          name the governing law and any data protection rules that apply to this deployment (the project is developed in
-          India, where the Digital Personal Data Protection Act, 2023 may apply)
-        </Confirm>
-        . NetSpectre makes no claim of certification or legal compliance.
+        This deployment is operated from Bengaluru, Karnataka, India, and Indian law applies, including the Digital
+        Personal Data Protection Act, 2023 where it is relevant. NetSpectre makes no claim of certification or legal compliance.
       </p>
 
       <h3>10. Changes</h3>
@@ -121,8 +107,8 @@ export function TermsPage() {
       <h3>1. About NetSpectre</h3>
       <p>
         NetSpectre is a network intrusion detection project{" "}
-        <Confirm>say whether to describe it as an academic final-year project, and name the institution if you wish</Confirm>
-        . By using this dashboard you agree to these terms.
+        built as a final-year academic project at Dayananda Sagar Academy of Technology and Management (DSATM),
+        Bengaluru. By using this dashboard you agree to these terms.
       </p>
 
       <h3>2. Monitor only networks you are allowed to monitor</h3>
@@ -156,7 +142,7 @@ export function TermsPage() {
       <p>
         The software and this dashboard are provided as they are, without warranties of any kind, to the extent the law
         allows. To the same extent, the authors are not liable for losses that result from using them or from relying on
-        their alerts. <Confirm>have a qualified person review this clause for your jurisdiction</Confirm>.
+        their alerts.
       </p>
 
       <h3>7. Your data</h3>
@@ -165,7 +151,7 @@ export function TermsPage() {
       <h3>8. Changes, governing law and contact</h3>
       <p>
         These terms may change, and the date at the top shows the latest revision. Governing law and place of dispute
-        resolution: <Confirm>jurisdiction</Confirm>. Contact: <Confirm>contact email</Confirm>.
+        resolution: the courts at Bengaluru, Karnataka, India. Contact: ahan.halsur@gmail.com.
       </p>
     </Legal>
   );
