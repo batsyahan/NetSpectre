@@ -12,3 +12,7 @@ models/*
 !models/multiclass_cat35.onnx
 !models/ae35.onnx
 !models/ae35_meta.json
+
+!models/classes_v2.json
+!models/multiclass_xgb35_v2.onnx
+!models/multiclass_xgb35_v2.json
