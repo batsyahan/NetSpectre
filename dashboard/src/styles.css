@@ -222,7 +222,7 @@ mark.confirm { background: #5a4a16; color: #ffe9a8; padding: 1px 5px; border-rad
 .token-form input { flex: 1; min-width: 0; }
 
 /* ML Advanced */
-.ml-row { display: grid; gap: 18px; align-items: start; }
+.ml-row { display: grid; gap: 18px; align-items: stretch; }
 .ml-row-2 { grid-template-columns: 55fr 45fr; }
 .ml-row-2b { grid-template-columns: 45fr 55fr; }
 .panel-tools { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -237,11 +237,11 @@ table.compare tr.row-key th, table.compare tr.row-key td { background: rgba(47, 
 .cm-wrap { overflow-x: auto; }
 table.cm { border-collapse: separate; border-spacing: 2px; font-size: 11px; font-variant-numeric: tabular-nums; }
 table.cm th { color: var(--muted); font-weight: 500; white-space: nowrap; }
-table.cm thead th { height: 74px; vertical-align: bottom; padding: 0 0 4px; }
-table.cm thead th span { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); }
+table.cm thead th { height: 78px; vertical-align: bottom; padding: 0; position: relative; }
+table.cm thead th span { position: absolute; left: 50%; bottom: 6px; transform-origin: left bottom; transform: rotate(-55deg); white-space: nowrap; font-size: 11.5px; color: #c4cedb; }
 table.cm thead .cm-corner { writing-mode: initial; text-align: left; font-size: 10.5px; vertical-align: bottom; }
-table.cm tbody th { text-align: right; padding-right: 6px; }
-table.cm td { width: 30px; min-width: 30px; height: 24px; text-align: center; color: #e8eef7; background: var(--panel-2); border-radius: 2px; }
+table.cm tbody th { text-align: right; padding-right: 8px; font-size: 11.5px; color: #c4cedb; }
+table.cm td { width: 34px; min-width: 34px; height: 26px; text-align: center; color: #e8eef7; background: var(--panel-2); border-radius: 2px; }
 table.cm td.diag { outline: 1px solid rgba(255, 255, 255, 0.25); outline-offset: -1px; }
 .hbars { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .hbars li { display: grid; grid-template-columns: minmax(120px, 40%) 1fr 56px; align-items: center; gap: 10px; font-size: 13px; }
