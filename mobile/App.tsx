@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { WebView } from "react-native-webview";
 import { StatusBar } from "expo-status-bar";
-import { API_TOKEN, API_URL } from "./config";
+import { API_TOKEN, API_URL, DASHBOARD_URL } from "./config";
 
 interface Reason { feature: string; text: string; weight: number }
 interface Alert {
@@ -15,6 +16,9 @@ export default function App() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [online, setOnline] = useState(false);
   const [error, setError] = useState("");
+  const [tab, setTab] = useState<"alerts" | "dashboard">("alerts");
+  const [webError, setWebError] = useState("");
+  const web = useRef<WebView>(null);
 
   const load = useCallback(async () => {
     try {
@@ -74,27 +78,75 @@ export default function App() {
     </View>
   );
 
+  const newCount = alerts.filter((a) => a.status === "new").length;
+
   return (
     <View style={s.screen}>
       <StatusBar style="light" />
       <View style={s.header}>
         <Text style={s.title}>NetSpectre</Text>
-        <Text style={[s.badge, online ? s.on : s.off]}>{online ? "Monitor online" : "Monitor offline"}</Text>
+        {tab === "dashboard" ? (
+          <Pressable style={s.btn} onPress={() => { setWebError(""); web.current?.reload(); }}>
+            <Text style={s.btnText}>Reload</Text>
+          </Pressable>
+        ) : (
+          <Text style={[s.badge, online ? s.on : s.off]}>{online ? "Monitor online" : "Monitor offline"}</Text>
+        )}
       </View>
-      {error ? <Text style={s.empty}>{error}</Text> : null}
-      <FlatList
-        data={alerts}
-        keyExtractor={(a) => String(a.id)}
-        renderItem={renderItem}
-        ListEmptyComponent={online ? <Text style={s.empty}>No alerts yet.</Text> : null}
-      />
+
+      {/* Both tabs stay mounted so switching back does not reload the dashboard. */}
+      <View style={[s.body, tab !== "alerts" && s.hidden]}>
+        {error ? <Text style={s.empty}>{error}</Text> : null}
+        <FlatList
+          data={alerts}
+          keyExtractor={(a) => String(a.id)}
+          renderItem={renderItem}
+          ListEmptyComponent={online ? <Text style={s.empty}>No alerts yet.</Text> : null}
+        />
+      </View>
+      <View style={[s.body, s.webWrap, tab !== "dashboard" && s.hidden]}>
+        {webError ? (
+          <Text style={s.empty}>Cannot open {DASHBOARD_URL} ({webError}). Is the laptop on the same Wi-Fi and the dashboard running?</Text>
+        ) : (
+          <WebView
+            ref={web}
+            source={{ uri: DASHBOARD_URL }}
+            style={s.web}
+            startInLoadingState
+            renderLoading={() => <ActivityIndicator style={s.loading} color="#60a5fa" />}
+            onError={(e) => setWebError(e.nativeEvent.description || "load failed")}
+            onHttpError={(e) => setWebError(`HTTP ${e.nativeEvent.statusCode}`)}
+            pullToRefreshEnabled
+            setSupportMultipleWindows={false}
+          />
+        )}
+      </View>
+
+      <View style={s.tabs}>
+        <Pressable style={[s.tab, tab === "alerts" && s.tabOn]} onPress={() => setTab("alerts")}>
+          <Text style={[s.tabText, tab === "alerts" && s.tabTextOn]}>Alerts{newCount ? ` (${newCount})` : ""}</Text>
+        </Pressable>
+        <Pressable style={[s.tab, tab === "dashboard" && s.tabOn]} onPress={() => setTab("dashboard")}>
+          <Text style={[s.tabText, tab === "dashboard" && s.tabTextOn]}>Dashboard</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#0e1217", paddingTop: 56, paddingHorizontal: 16 },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+  screen: { flex: 1, backgroundColor: "#0e1217", paddingTop: 56 },
+  body: { flex: 1, paddingHorizontal: 16 },
+  hidden: { display: "none" },
+  webWrap: { paddingHorizontal: 0 },
+  web: { flex: 1, backgroundColor: "#0e1217" },
+  loading: { position: "absolute", top: 40, alignSelf: "center" },
+  tabs: { flexDirection: "row", borderTopWidth: 1, borderTopColor: "#2a313c", backgroundColor: "#11161d", paddingBottom: 24 },
+  tab: { flex: 1, alignItems: "center", paddingVertical: 14 },
+  tabOn: { borderTopWidth: 2, borderTopColor: "#60a5fa", marginTop: -1 },
+  tabText: { color: "#8b95a7", fontSize: 14, fontWeight: "600" },
+  tabTextOn: { color: "#e5e7eb" },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingHorizontal: 16 },
   title: { color: "#fff", fontSize: 26, fontWeight: "700" },
   badge: { fontSize: 12, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, overflow: "hidden" },
   on: { backgroundColor: "#12372a", color: "#34d399" },
