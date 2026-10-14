@@ -52,7 +52,8 @@ Settings are environment variables. Put secrets in the git-ignored `.env`; `dock
 | `NS_IFACE` | `lo` | Network interface the monitor captures on. |
 | `NS_API_TOKEN` | empty | Token (`x-api-token` header) required from non-loopback API clients, such as the phone app. |
 | `NS_ANOMALY_IGNORE` | see compose file | Trusted source IPs that never raise "Anomaly (unknown)" alerts. |
-| `NS_AE_THRESHOLD` | 0.2369 (compose: 0.5) | Autoencoder reconstruction-error threshold. 0.2369 flags ~1% of CICIDS2017 benign flows; docker-compose uses 0.5 to cut live false alarms, which also lowers zero-day detection (see `docs/EVAL_LEAVE_DAY_OUT.txt`). |
+| `NS_AE_THRESHOLD` | 0.2369 (compose: 0.645) | Autoencoder reconstruction-error threshold. Compose runs autoencoder `ae35_v2` (trained with own-network normal traffic) at 0.645, which flags ~0.6% of normal home traffic; see `docs/RESULTS.md`. |
+| `NS_MODEL` / `NS_AE_MODEL` | `multiclass_xgb35_v3` / `ae35` (compose: `ae35_v2`) | ML service: which classifier and autoencoder files in `ml/models/` to load. |
 | `NS_RARE_MIN_CONF` | 0.8 | Minimum model confidence before Heartbleed or Infiltration flows may count toward an alert. These classes have very few training flows, so weak detections are ignored. |
 | `NS_RETENTION_DAYS` | 30 | Alerts and devices older than this are deleted hourly; 0 keeps everything. |
 | `NS_ENSEMBLE` | 0 | ML service: 1 averages XGBoost and CatBoost probabilities. |
