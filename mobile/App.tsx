@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
 import { StatusBar } from "expo-status-bar";
 import { API_TOKEN, API_URL, DASHBOARD_URL } from "./config";
@@ -19,6 +19,7 @@ export default function App() {
   const [tab, setTab] = useState<"alerts" | "dashboard">("alerts");
   const [webError, setWebError] = useState("");
   const web = useRef<WebView>(null);
+  const [webKey, setWebKey] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -86,7 +87,7 @@ export default function App() {
       <View style={s.header}>
         <Text style={s.title}>NetSpectre</Text>
         {tab === "dashboard" ? (
-          <Pressable style={s.btn} onPress={() => { setWebError(""); web.current?.reload(); }}>
+          <Pressable style={s.btn} onPress={() => { setWebError(""); setWebKey((k) => k + 1); web.current?.reload(); }}>
             <Text style={s.btnText}>Reload</Text>
           </Pressable>
         ) : (
@@ -105,7 +106,10 @@ export default function App() {
         />
       </View>
       <View style={[s.body, s.webWrap, tab !== "dashboard" && s.hidden]}>
-        {webError ? (
+        {Platform.OS === "web" ? (
+          // react-native-webview has no browser build; a plain iframe does the same job there.
+          <iframe key={webKey} src={DASHBOARD_URL} style={{ flex: 1, border: 0, width: "100%", height: "100%" }} />
+        ) : webError ? (
           <Text style={s.empty}>Cannot open {DASHBOARD_URL} ({webError}). Is the laptop on the same Wi-Fi and the dashboard running?</Text>
         ) : (
           <WebView
