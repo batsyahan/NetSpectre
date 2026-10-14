@@ -1,6 +1,6 @@
 # NetSpectre
 
-**ML-based intrusion detection for home networks.** NetSpectre captures live traffic, turns each network flow into 35 features, classifies it with an XGBoost + CatBoost ensemble trained on CICIDS2017, flags traffic that matches no known attack with an autoencoder, and shows plain-language reasons for every alert on a web dashboard and an Android/iOS app.
+**ML-based intrusion detection for home networks.** NetSpectre captures live traffic, turns each network flow into 35 features, classifies it with an XGBoost model trained on CICIDS2017 (an XGBoost + CatBoost ensemble is optional), flags traffic that matches no known attack with an autoencoder, and shows plain-language reasons for every alert on a web dashboard and an Android/iOS app.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/batsyahan/NetSpectre/actions/workflows/ci.yml/badge.svg)](https://github.com/batsyahan/NetSpectre/actions/workflows/ci.yml)
@@ -9,7 +9,7 @@
 
 ```
  packets ──▶ Rust monitor (core/) ──gRPC──▶ Python ML service (ml/)
- (libpcap)   flows → 35 features            XGBoost+CatBoost classifier (ONNX)
+ (libpcap)   flows → 35 features            XGBoost classifier (ONNX)
                  │                          autoencoder anomaly score (ONNX)
                  │                          TreeSHAP "why" reasons
                  ▼
@@ -52,8 +52,10 @@ Settings are environment variables. Put secrets in the git-ignored `.env`; `dock
 | `NS_IFACE` | `lo` | Network interface the monitor captures on. |
 | `NS_API_TOKEN` | empty | Token (`x-api-token` header) required from non-loopback API clients, such as the phone app. |
 | `NS_ANOMALY_IGNORE` | see compose file | Trusted source IPs that never raise "Anomaly (unknown)" alerts. |
-| `NS_AE_THRESHOLD` | 0.2369 | Autoencoder reconstruction-error threshold (calibrated for ~1% false alarms on benign traffic). |
+| `NS_AE_THRESHOLD` | 0.2369 (compose: 0.5) | Autoencoder reconstruction-error threshold. 0.2369 flags ~1% of CICIDS2017 benign flows; docker-compose uses 0.5 to cut live false alarms, which also lowers zero-day detection (see `docs/EVAL_LEAVE_DAY_OUT.txt`). |
 | `NS_RARE_MIN_CONF` | 0.8 | Minimum model confidence before Heartbleed or Infiltration flows may count toward an alert. These classes have very few training flows, so weak detections are ignored. |
+| `NS_RETENTION_DAYS` | 30 | Alerts and devices older than this are deleted hourly; 0 keeps everything. |
+| `NS_ENSEMBLE` | 0 | ML service: 1 averages XGBoost and CatBoost probabilities. |
 | `NS_NTFY_TOPIC` | empty (off) | Enables phone notifications through [ntfy](https://ntfy.sh). Use a long random topic name and treat it like a password. |
 | `NS_NTFY_MIN_SEVERITY` | `medium` | Lowest severity that sends a phone notification: `low`, `medium`, `high` or `critical`. |
 | `NS_NTFY_SERVER` | `https://ntfy.sh` | ntfy server; point this at your own server to keep alerts off third-party infrastructure. |
@@ -99,7 +101,7 @@ Open the QR code in Expo Go on a phone on the same Wi-Fi.
 GitHub Actions runs the Rust, dashboard and ML test suites on every push (see the CI badge above).
 
 ```bash
-cd core && cargo test                 # 10 Rust unit tests (parser, flow features, statistics, token check)
+cd core && cargo test                 # 17 Rust unit tests (parser, flow features, statistics, token check, severity rules)
 cd ml && python -m unittest -v test_ml    # 10 Python tests (feature contract, classify, explanations, anomaly)
 bash scripts/smoke_test.sh            # end-to-end against the running stack
 ```
@@ -109,7 +111,8 @@ bash scripts/smoke_test.sh            # end-to-end against the running stack
 Measured numbers (latency, detection checks, deployment findings) are in [docs/RESULTS.md](docs/RESULTS.md). Key points:
 
 - ML call latency on a laptop: 2.0 ms mean for benign flows, 8.2 ms mean for attacks including explanations. The ARM64 image builds and serves under emulation; it has not yet been timed on real Raspberry Pi hardware.
-- Anomaly thresholds are demo-grade and need calibration per network.
+- Anomaly thresholds need calibration per network. On attack types never seen in training (leave-one-day-out, `docs/EVAL_LEAVE_DAY_OUT.txt`) the classifier alone catches few, and the autoencoder at 0.2369 adds most of the zero-day detection.
+- Only IPv4 TCP/UDP is analysed; IPv6 and QUIC-over-IPv6 traffic is ignored.
 - Capture needs a vantage point that actually sees the traffic (a gateway, access point or mirror port). A host on ordinary Wi-Fi, and WSL2, see only their own traffic.
 - TCP flag-count features were removed from the model because they are a dataset artifact in CICIDS2017.
 
@@ -120,4 +123,4 @@ MIT, see [LICENSE](LICENSE).
 ## Acknowledgments
 
 - [CICIDS2017](https://www.unb.ca/cic/datasets/ids-2017.html) (Canadian Institute for Cybersecurity) for training data
-- XGBoost, CatBoost, ONNX Runtime and SHAP for the models and explanations
+- XGBoost, CatBoost, PyTorch, ONNX Runtime and SHAP for the models and explanations

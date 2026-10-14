@@ -4,16 +4,18 @@ All figures come from `docs/EVAL_TEST_SET.txt` (script `ml/eval_final.py`, deplo
 
 ## 1. Replace the Monte Carlo paragraph (end of the methodology/results chapter, page 21)
 
-> The deployed ensemble (XGBoost and CatBoost soft voting over 35 flow-level features) was evaluated on a held-out temporal split of CICIDS2017: the model is trained on earlier capture days and tested on later ones, which avoids the optimistic results of random splits. On the 499,605 test flows it reached 99.45% accuracy, a weighted F1 of 99.48% and a macro F1 of 84.64%. Only 0.17% of benign flows were flagged as an attack. Performance is uneven across classes: large classes (DDoS, PortScan, DoS variants, FTP and SSH brute force) score F1 above 0.90, while Web Attack XSS (F1 0.37) and Web Attack Brute Force (F1 0.62) are weak, and Bot is detected with full recall but 44% precision.
+> The classifier (XGBoost over 35 flow-level features) was evaluated on a temporal split of CICIDS2017: within every capture day and attack type, the first 80% of flows (in time order) were used for training and the last 20% for testing, so every attack type appears in both parts. This is not a split by held-out days, so the scores are optimistic for unseen networks. On the 499,605 test flows the deployed XGBoost model reached 99.40% accuracy, a weighted F1 of 99.43% and a macro F1 of 85.23%, and flagged 0.14% of benign flows as an attack. The optional XGBoost + CatBoost ensemble (off by default) reached 99.45% accuracy and a macro F1 of 84.64% with 0.17% benign false positives. Performance is uneven across classes: large classes (DDoS, PortScan, DoS variants, FTP and SSH brute force) score F1 above 0.90, while Web Attack XSS (F1 0.36) and Web Attack Brute Force (F1 0.57) are weak, and Bot is detected with full recall but 50% precision. A separate leave-one-day-out test (Section 6) measures detection of attack types never seen in training.
 
 Delete: "Monte Carlo ... 100 independent repetitions", "top 100 most predictive features", "95.4%" and "96% recall for DDoS, Botnet and Infiltration".
-Reason: the evaluation was a single temporal split, the feature set has 35 features, and the Infiltration test set has only 8 flows, so no meaningful recall can be claimed for it.
+Reason: the evaluation was a single 80/20 temporal split within each day and attack type, the feature set has 35 features, and the Infiltration test set has only 8 flows, so no meaningful recall can be claimed for it.
 
 ## 2. Feature selection (replace "top 100 features by Information Gain Ratio")
 
-> The flow extractor computes 35 CICFlowMeter-compatible features: the original 40 minus five TCP flag-count features (SYN, FIN, RST, PSH, ACK counts). An ablation on the temporal test split shows the removal costs no accuracy: macro F1 is 0.851 with the flag counts and 0.852 without them (same XGBoost settings; ml/ablate_flags.py and ml/eval_final.py). The flag counts were removed because [CONFIRM AND FILL IN: the reason you observed with live capture, e.g. flows captured by our own extractor did not reproduce the dataset's flag-count values, so a model relying on them did not transfer to live traffic].
+> The flow extractor computes 35 CICFlowMeter-compatible features: the original 40 minus five TCP flag-count features (SYN, FIN, RST, PSH, ACK counts). An ablation on the temporal test split shows the removal costs no accuracy: macro F1 is 0.851 with the flag counts and 0.852 without them (same XGBoost settings; ml/ablate_flags.py and ml/eval_final.py). The flag counts were removed because the 40-feature model detected PortScan almost entirely through the flag counts, and CICIDS2017 records them in a way live capture does not reproduce (PortScan flows carry SYN=0, RST=0 and PSH=1), so it was learning a dataset artifact; without them, a real nmap SYN scan was still classified as PortScan.
 
 ## 3. Replace Table 6.1 (attack catalogue)
+
+Note: the per-class figures in this table are for the optional XGBoost + CatBoost ensemble. The deployed default is XGBoost only; its per-class figures are in `docs/EVAL_TEST_SET.txt`.
 
 CICIDS2017 has 15 labels: BENIGN plus 14 attack classes. The report's catalogue listed classes that are not in the dataset (Generic Brute Force, Zero-Day Anomaly as a class, Malware Distribution, HTTPS Brute Force, DNS Spoofing, Packet Fragmentation); remove them and use the table below. Unknown attacks are handled by the autoencoder, not by a trained class.
 
@@ -95,3 +97,17 @@ The autoencoder and the classifier are complementary: it catches volumetric and 
 **Raspberry Pi.** The ML service builds and serves on ARM64 (verified under QEMU emulation). Real Pi latency, CPU, RAM and throughput are still to be measured.
 
 **Testing.** 10 Rust unit tests (packet parser, flow features, statistics, token check), 10 Python tests (feature-order contract between the Rust extractor and the model, classification output, explanations, anomaly score) and a 6-check end-to-end smoke test.
+
+## 6. New: detection of attack types never seen in training (leave-one-day-out)
+
+Every attack type in CICIDS2017 was recorded on a single day, so training on four days and testing on the fifth makes that day's attacks completely unseen. Script `ml/eval_leave_day_out.py`, results in `docs/EVAL_LEAVE_DAY_OUT.txt`. Shares of flows flagged by the classifier or the autoencoder:
+
+| Held-out day | Unseen attacks | Benign false positives (AE 0.5) | Attacks flagged (AE 0.5) | Attacks flagged (AE 0.2369) |
+|---|---|---|---|---|
+| Tuesday | FTP/SSH-Patator | 0.4% | 22.8% | 22.9% |
+| Wednesday | DoS variants, Heartbleed | 0.3% | 13.7% | 20.9% |
+| Thursday | Web attacks, Infiltration | 0.6% | 86.3% | 86.6% |
+| Friday | DDoS, PortScan, Bot | 0.3% | 37.1% | 56.2% |
+
+Suggested text: "A supervised classifier cannot name attacks it has never seen: on held-out days it caught 1-32% of unseen brute-force, DoS, PortScan and Bot flows, but 86% of unseen web attacks. The autoencoder is the main defence against unknown attacks: at a threshold of 0.2369 it raised DDoS detection from 63% to 96% and DoS Slowhttptest from 10% to 72%, at the cost of about 1% of benign flows flagged instead of 0.3%."
+
