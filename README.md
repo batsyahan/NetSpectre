@@ -55,6 +55,7 @@ Settings are environment variables. Put secrets in the git-ignored `.env`; `dock
 | `NS_AE_THRESHOLD` | 0.2369 (compose: 0.645) | Autoencoder reconstruction-error threshold. Compose runs autoencoder `ae35_v2` (trained with own-network normal traffic) at 0.645, which flags ~0.6% of normal home traffic; see `docs/RESULTS.md`. |
 | `NS_MODEL` / `NS_AE_MODEL` | `multiclass_xgb35_v3` / `ae35` (compose: `ae35_v2`) | ML service: which classifier and autoencoder files in `ml/models/` to load. |
 | `NS_RARE_MIN_CONF` | 0.8 | Minimum model confidence before Heartbleed or Infiltration flows may count toward an alert. These classes have very few training flows, so weak detections are ignored. |
+| `NS_MAX_FLOWS` / `NS_QUEUE_MAX` | 100000 / 20000 | Flood protection: at most this many open flows and queued finished flows. Extra ones are dropped, counted, logged, and reported by `/api/health`. |
 | `NS_RETENTION_DAYS` | 30 | Alerts and devices older than this are deleted hourly; 0 keeps everything. |
 | `NS_ENSEMBLE` | 0 | ML service: 1 averages XGBoost and CatBoost probabilities. |
 | `NS_NTFY_TOPIC` | empty (off) | Enables phone notifications through [ntfy](https://ntfy.sh). Use a long random topic name and treat it like a password. |
@@ -69,7 +70,7 @@ The monitor serves a JSON API on port 8080. Programs and browsers on the monitor
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/health` | Liveness check. |
+| `GET /api/health` | Liveness check, plus flood-protection counters (`flows_refused`, `flows_queue_dropped`). |
 | `GET /api/alerts?limit=N&src_ip=IP` | Newest alerts first; `src_ip` limits the result to one device (default limit 50, maximum 500). |
 | `POST /api/alerts/status` | Acknowledge, dismiss or reopen an alert. |
 | `GET /api/devices` | Device inventory with flow and alert counts. |
