@@ -245,7 +245,17 @@ impl Flow {
     }
 }
 
-static TX: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<pb::FlowFeatures>> =
+// Flood protection: every buffer between the network and the database has a cap. What does not fit is
+// dropped and counted (logged once a second and reported by /api/health), so a flood of new connections
+// cannot exhaust memory.
+static FLOWS_REFUSED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static FLOWS_QUEUE_DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn env_usize(name: &str, default: usize) -> usize {
+    env::var(name).ok().and_then(|v| v.parse().ok()).filter(|n| *n > 0).unwrap_or(default)
+}
+
+static TX: std::sync::OnceLock<tokio::sync::mpsc::Sender<pb::FlowFeatures>> =
     std::sync::OnceLock::new();
 
 // Wakes /api/stream listeners whenever a new alert is stored.
@@ -347,12 +357,23 @@ fn emit(f: &Flow) {
         features: f.features().iter().map(|x| x.1 as f32).collect(),
     };
     if let Some(tx) = TX.get() {
-        let _ = tx.send(req);
+        enqueue(tx, req);
+    }
+}
+
+// Hands a finished flow to the classifier without blocking capture; returns false if the queue was full.
+fn enqueue(tx: &tokio::sync::mpsc::Sender<pb::FlowFeatures>, req: pb::FlowFeatures) -> bool {
+    match tx.try_send(req) {
+        Ok(()) => true,
+        Err(_) => {
+            FLOWS_QUEUE_DROPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            false
+        }
     }
 }
 
 fn start_worker(addr: String) {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<pb::FlowFeatures>();
+    let (tx, rx) = tokio::sync::mpsc::channel::<pb::FlowFeatures>(env_usize("NS_QUEUE_MAX", 20_000));
     TX.set(tx).ok();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
@@ -406,6 +427,8 @@ fn open_db() -> rusqlite::Connection {
 #[derive(serde::Serialize)]
 struct Health {
     status: &'static str,
+    flows_refused: u64,
+    flows_queue_dropped: u64,
 }
 
 #[derive(serde::Serialize)]
@@ -421,7 +444,12 @@ struct AlertRow {
 }
 
 async fn api_health() -> axum::Json<Health> {
-    axum::Json(Health { status: "ok" })
+    use std::sync::atomic::Ordering::Relaxed;
+    axum::Json(Health {
+        status: "ok",
+        flows_refused: FLOWS_REFUSED.load(Relaxed),
+        flows_queue_dropped: FLOWS_QUEUE_DROPPED.load(Relaxed),
+    })
 }
 
 async fn api_alerts(
@@ -652,7 +680,7 @@ async fn run_api() {
     axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
 }
 
-async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<pb::FlowFeatures>) {
+async fn run_client(addr: String, mut rx: tokio::sync::mpsc::Receiver<pb::FlowFeatures>) {
     use std::collections::{HashMap, HashSet};
     let mut client = loop {
         match InferenceClient::connect(addr.clone()).await {
@@ -676,7 +704,15 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
     let mut hist: HashMap<(String, String), Vec<(Instant, u32, f32)>> = HashMap::new();
     let mut last_alert: HashMap<(String, String), Instant> = HashMap::new();
 
+    let mut seen: u64 = 0;
     while let Some(req) = rx.recv().await {
+        // keep the per-source history small: drop pairs with no recent flows and expired cooldowns
+        seen += 1;
+        if seen % 1000 == 0 {
+            let now = Instant::now();
+            hist.retain(|_, v| v.last().is_some_and(|x| now.duration_since(x.0) <= Duration::from_secs(10)));
+            last_alert.retain(|_, t| now.duration_since(*t) <= Duration::from_secs(30));
+        }
         let (src, dport) = (req.src_ip.clone(), req.dst_port);
         if let Err(e) = db.execute(
             "INSERT INTO devices (ip, flow_count) VALUES (?1, 1) \
@@ -791,6 +827,56 @@ fn start_retention() {
     });
 }
 
+// The flow table. New flows are refused while it holds `max` flows; flows already being tracked
+// continue normally and the idle sweep frees room.
+struct Tracker {
+    flows: HashMap<Key, Flow>,
+    closed: HashMap<Key, Instant>, // recently finished flows: late packets of these are ignored
+    max: usize,
+    refused: u64,
+}
+
+impl Tracker {
+    fn new(max: usize) -> Self {
+        Tracker { flows: HashMap::new(), closed: HashMap::new(), max, refused: 0 }
+    }
+
+    // Adds one packet; returns the flow if this packet finished it (second FIN or any RST).
+    fn packet(&mut self, p: &Pkt) -> Option<Flow> {
+        let k = key_of(p);
+        if self.closed.get(&k).is_some_and(|t| t.elapsed() < Duration::from_secs(10)) {
+            return None;
+        }
+        if !self.flows.contains_key(&k) && self.flows.len() >= self.max {
+            self.refused += 1;
+            FLOWS_REFUSED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return None;
+        }
+        let f = self.flows.entry(k).or_insert_with(|| Flow::new(p));
+        f.update(p);
+        if f.fin >= 2 || f.rst > 0 {
+            let done = self.flows.remove(&k);
+            if self.closed.len() < self.max {
+                self.closed.insert(k, Instant::now());
+            }
+            return done;
+        }
+        None
+    }
+
+    // Removes and returns flows idle for longer than idle_us; forgets old closed-flow entries.
+    fn expire(&mut self, now_us: u64, idle_us: u64) -> Vec<Flow> {
+        self.closed.retain(|_, t| t.elapsed() < Duration::from_secs(10));
+        let expired: Vec<Key> = self
+            .flows
+            .iter()
+            .filter(|(_, f)| now_us.saturating_sub(f.last_us) > idle_us)
+            .map(|(k, _)| *k)
+            .collect();
+        expired.into_iter().filter_map(|k| self.flows.remove(&k)).collect()
+    }
+}
+
 fn main() {
     let iface = env::args().nth(1).unwrap_or_else(|| "eth0".to_string());
     let filter = env::args().nth(2).filter(|f| f != "-");
@@ -820,29 +906,18 @@ fn main() {
     }
 
     eprintln!("monitoring {iface} (flows close on FIN/RST or after {}s idle)...", idle_us / 1_000_000);
-    let mut flows: HashMap<Key, Flow> = HashMap::new();
+    let max_flows = env_usize("NS_MAX_FLOWS", 100_000);
+    let mut tracker = Tracker::new(max_flows);
     let mut last_sweep = Instant::now();
-    let mut closed: HashMap<Key, Instant> = HashMap::new();
     let mut last_dropped: u32 = 0;
+    let (mut warned_refused, mut warned_queue) = (0u64, 0u64);
     loop {
         match cap.next_packet() {
             Ok(pk) => {
                 let ts = pk.header.ts.tv_sec as u64 * 1_000_000 + pk.header.ts.tv_usec as u64;
                 if let Some(p) = parse(pk.data, ts) {
-                    let k = key_of(&p);
-                    if closed.get(&k).map_or(false, |t| t.elapsed() < Duration::from_secs(10)) {
-                        continue;
-                    }
-                    let done = {
-                        let f = flows.entry(k).or_insert_with(|| Flow::new(&p));
-                        f.update(&p);
-                        f.fin >= 2 || f.rst > 0
-                    };
-                    if done {
-                        if let Some(f) = flows.remove(&k) {
-                            emit(&f);
-                            closed.insert(k, Instant::now());
-                        }
+                    if let Some(f) = tracker.packet(&p) {
+                        emit(&f);
                     }
                 }
             }
@@ -860,20 +935,20 @@ fn main() {
                     last_dropped = st.dropped;
                 }
             }
-            closed.retain(|_, t| t.elapsed() < Duration::from_secs(10));
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_micros() as u64;
-            let expired: Vec<Key> = flows
-                .iter()
-                .filter(|(_, f)| now.saturating_sub(f.last_us) > idle_us)
-                .map(|(k, _)| *k)
-                .collect();
-            for k in expired {
-                if let Some(f) = flows.remove(&k) {
-                    emit(&f);
-                }
+            for f in tracker.expire(now, idle_us) {
+                emit(&f);
+            }
+            use std::sync::atomic::Ordering::Relaxed;
+            let (r, q) = (FLOWS_REFUSED.load(Relaxed), FLOWS_QUEUE_DROPPED.load(Relaxed));
+            if r > warned_refused || q > warned_queue {
+                eprintln!(
+                    "warning: flood protection active: {r} new flows refused (table full at {max_flows}), {q} finished flows dropped (classifier queue full)"
+                );
+                (warned_refused, warned_queue) = (r, q);
             }
         }
     }
@@ -1082,6 +1157,39 @@ mod tests {
         assert_eq!(feat(&f, "Init_Win_bytes_backward"), -1.0);
         assert_eq!(feat(&f, "Flow Packets/s"), 0.0); // zero duration must not divide by zero
         assert_eq!(feat(&f, "Total Backward Packets"), 0.0);
+    }
+
+    #[test]
+    fn flow_table_refuses_new_flows_when_full_but_keeps_existing_ones() {
+        let mut t = Tracker::new(2);
+        assert!(t.packet(&pkt([10, 0, 0, 1], [10, 0, 0, 9], 1001, 80, 0x02, 0, 0, 1)).is_none());
+        assert!(t.packet(&pkt([10, 0, 0, 2], [10, 0, 0, 9], 1002, 80, 0x02, 0, 0, 2)).is_none());
+        assert!(t.packet(&pkt([10, 0, 0, 3], [10, 0, 0, 9], 1003, 80, 0x02, 0, 0, 3)).is_none());
+        assert_eq!((t.flows.len(), t.refused), (2, 1));
+        // a reset on a tracked flow still finishes it and frees a slot
+        let done = t.packet(&pkt([10, 0, 0, 9], [10, 0, 0, 1], 80, 1001, 0x04, 0, 0, 4));
+        assert!(done.is_some());
+        assert_eq!(t.flows.len(), 1);
+        assert!(t.packet(&pkt([10, 0, 0, 3], [10, 0, 0, 9], 1003, 80, 0x02, 0, 0, 5)).is_none());
+        assert_eq!((t.flows.len(), t.refused), (2, 1));
+    }
+
+    #[test]
+    fn idle_flows_expire_and_late_packets_of_closed_flows_are_ignored() {
+        let mut t = Tracker::new(10);
+        t.packet(&pkt([10, 0, 0, 1], [10, 0, 0, 9], 1001, 80, 0x02, 0, 0, 1_000_000));
+        assert_eq!(t.expire(3_000_000, 5_000_000).len(), 0);
+        assert_eq!(t.expire(7_000_000, 5_000_000).len(), 1);
+        assert!(t.packet(&pkt([10, 0, 0, 2], [10, 0, 0, 9], 2002, 80, 0x04, 0, 0, 1)).is_some());
+        assert!(t.packet(&pkt([10, 0, 0, 2], [10, 0, 0, 9], 2002, 80, 0x10, 0, 0, 2)).is_none());
+        assert!(t.flows.is_empty());
+    }
+
+    #[test]
+    fn classifier_queue_drops_when_full_instead_of_growing() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<pb::FlowFeatures>(1);
+        assert!(enqueue(&tx, pb::FlowFeatures::default()));
+        assert!(!enqueue(&tx, pb::FlowFeatures::default()));
     }
 
     #[test]
