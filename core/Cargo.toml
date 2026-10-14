@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.9"
+maxminddb = "=0.24.0"   # offline IP -> country lookup (DB-IP Lite database file)
 pcap = "2.5.0"
 prost = "0.14.4"
 rusqlite = { version = "0.40.2", features = ["bundled"] }

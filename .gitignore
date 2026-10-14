@@ -27,3 +27,4 @@ data/*
 .env
 mobile/.env.local
 baselines/
+geo/

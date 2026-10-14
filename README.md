@@ -75,7 +75,14 @@ The monitor serves a JSON API on port 8080. Programs and browsers on the monitor
 | `POST /api/alerts/status` | Acknowledge, dismiss or reopen an alert. |
 | `GET /api/devices` | Device inventory with flow and alert counts. |
 | `GET /api/alerts/export` | All alerts as CSV. |
+| `GET /api/ml` | Live classifier counters: flows classified, average/max inference round trip, errors, output per class. |
+| `GET /api/predictions?limit=N` | The newest non-benign predictions (max 300, in memory) with ports, protocol, packets and explanation. |
+| `GET /api/geo?ips=a,b` | Scope of each address (local/public) and, for public ones, the country from the local DB-IP Lite file. |
 | `GET /api/stream` | Server-sent events; emits an `alert` event whenever a new alert is stored, so the dashboard updates instantly. |
+
+### Attack Map country lookup (optional)
+
+`bash scripts/get_geoip.sh` downloads the free DB-IP "IP to Country Lite" database (CC BY 4.0) into `geo/`; restart the monitor afterwards. Lookups happen locally. Private addresses are never given a location; they appear in the map's network view.
 
 ### Mobile app
 
