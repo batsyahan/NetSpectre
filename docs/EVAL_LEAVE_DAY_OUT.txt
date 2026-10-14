@@ -1,0 +1,40 @@
+flows after cleaning: 2,497,530
+attack types per day: Friday: Bot, DDoS, PortScan; Monday: benign only; Thursday: Infiltration, Web Attack - Brute Force, Web Attack - Sql Injection, Web Attack - XSS; Tuesday: FTP-Patator, SSH-Patator; Wednesday: DoS GoldenEye, DoS Hulk, DoS Slowhttptest, DoS slowloris, Heartbleed
+
+=== held out: Tuesday (406,377 flows; trained on Friday, Monday, Thursday, Wednesday) ===
+class                           flows  classifier  AE>0.2369   either     AE>0.5   either
+BENIGN                        397,227        0.1%       1.1%     1.3%       0.3%     0.4%
+FTP-Patator                     5,931       31.9%       0.7%    32.0%       0.0%    31.9%
+SSH-Patator                     3,219        6.0%       0.3%     6.1%       0.0%     6.0%
+ALL ATTACKS (unseen)            9,150       22.8%       0.6%    22.9%       0.0%    22.8%
+
+=== held out: Wednesday (586,536 flows; trained on Friday, Monday, Thursday, Tuesday) ===
+class                           flows  classifier  AE>0.2369   either     AE>0.5   either
+BENIGN                        392,805        0.1%       0.9%     1.0%       0.3%     0.3%
+DoS GoldenEye                  10,282       22.6%       2.2%    24.8%       0.0%    22.6%
+DoS Hulk                      172,845       13.2%       6.2%    19.4%       0.2%    13.4%
+DoS Slowhttptest                5,228       10.3%      68.3%    72.0%       6.4%    11.2%
+DoS slowloris                   5,365        9.3%       6.8%    11.8%       2.6%     9.3%
+Heartbleed                         11        0.0%       0.0%     0.0%       0.0%     0.0%
+ALL ATTACKS (unseen)          193,731       13.5%       7.7%    20.9%       0.4%    13.7%
+
+=== held out: Thursday (396,703 flows; trained on Friday, Monday, Tuesday, Wednesday) ===
+class                           flows  classifier  AE>0.2369   either     AE>0.5   either
+BENIGN                        394,524        0.4%       1.0%     1.4%       0.2%     0.6%
+Infiltration                       36        0.0%      36.1%    36.1%      13.9%    13.9%
+Web Attack - Brute Force        1,470       85.8%       0.0%    85.8%       0.0%    85.8%
+Web Attack - Sql Injection         21       90.5%       0.0%    90.5%       0.0%    90.5%
+Web Attack - XSS                  652       91.3%       0.0%    91.3%       0.0%    91.3%
+ALL ATTACKS (unseen)            2,179       86.0%       0.6%    86.6%       0.2%    86.3%
+
+=== held out: Friday (615,391 flows; trained on Monday, Thursday, Tuesday, Wednesday) ===
+class                           flows  classifier  AE>0.2369   either     AE>0.5   either
+BENIGN                        394,736        0.1%       0.8%     0.9%       0.2%     0.3%
+Bot                             1,948        0.0%       0.0%     0.0%       0.0%     0.0%
+DDoS                          128,013       63.4%      74.7%    95.7%       0.0%    63.4%
+PortScan                       90,694        0.7%       1.1%     1.6%       0.0%     0.7%
+ALL ATTACKS (unseen)          220,655       37.1%      43.8%    56.2%       0.0%    37.1%
+
+Columns: share of flows flagged. 'classifier' = any attack label; 'AE>t' = autoencoder score above t;
+'either' = flagged by classifier or autoencoder (NetSpectre uses 0.5 in docker-compose).
+For BENIGN rows the numbers are false-positive rates; for attack rows they are detection rates.
