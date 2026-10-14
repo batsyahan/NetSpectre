@@ -4,6 +4,7 @@ import { IconX } from "./components/icons";
 import { TokenPrompt } from "./components/TokenPrompt";
 import { useMonitor, type Monitor } from "./data";
 import { AlertsPage } from "./pages/AlertsPage";
+import { AttackMapPage } from "./pages/AttackMapPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DevicesPage } from "./pages/DevicesPage";
 import { MlAdvancedPage } from "./pages/MlAdvancedPage";
@@ -47,6 +48,11 @@ const ROUTES: Record<string, Route> = {
     title: "ML Advanced",
     subtitle: "Model performance, predictions and explainability",
     render: () => <MlAdvancedPage />,
+  },
+  "/attack-map": {
+    title: "Attack Map (Live)",
+    subtitle: "Real-time visualization of network threats",
+    render: (m) => <AttackMapPage m={m} />,
   },
   "/reports": {
     title: "Reports",

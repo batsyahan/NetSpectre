@@ -697,6 +697,97 @@ async fn require_token(
     next.run(req).await
 }
 
+// ---- Offline country lookup for the Attack Map ----
+// Only public addresses are looked up, in a local DB-IP Lite file (NS_GEOIP_DB); nothing is sent anywhere.
+// Private, loopback, link-local and similar addresses are reported as "local" and never get a country.
+fn ip_scope(ip: &IpAddr) -> &'static str {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            let cgnat = o[0] == 100 && (o[1] & 0xc0) == 64; // 100.64.0.0/10
+            if v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast() || v4.is_multicast() || cgnat {
+                "local"
+            } else {
+                "public"
+            }
+        }
+        IpAddr::V6(v6) => {
+            let s0 = v6.segments()[0];
+            let unique_local = (s0 & 0xfe00) == 0xfc00; // fc00::/7
+            let link_local = (s0 & 0xffc0) == 0xfe80; // fe80::/10
+            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || unique_local || link_local {
+                "local"
+            } else if let Some(v4) = v6.to_ipv4_mapped() {
+                ip_scope(&IpAddr::V4(v4))
+            } else {
+                "public"
+            }
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct GeoName {
+    iso_code: Option<String>,
+    names: Option<std::collections::BTreeMap<String, String>>,
+}
+
+#[derive(serde::Deserialize)]
+struct GeoRecord {
+    country: Option<GeoName>,
+}
+
+static GEO_DB: std::sync::OnceLock<Option<maxminddb::Reader<Vec<u8>>>> = std::sync::OnceLock::new();
+
+fn geo_db() -> Option<&'static maxminddb::Reader<Vec<u8>>> {
+    GEO_DB
+        .get_or_init(|| {
+            let path = env::var("NS_GEOIP_DB").unwrap_or_else(|_| "../geo/dbip-country-lite.mmdb".to_string());
+            match maxminddb::Reader::open_readfile(&path) {
+                Ok(r) => {
+                    eprintln!("country lookup: {path}");
+                    Some(r)
+                }
+                Err(e) => {
+                    eprintln!("country lookup unavailable ({path}: {e})");
+                    None
+                }
+            }
+        })
+        .as_ref()
+}
+
+// GET /api/geo?ips=a,b,c (at most 200): scope and, for public addresses, the country.
+async fn api_geo(
+    axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
+) -> axum::Json<serde_json::Value> {
+    let db = geo_db();
+    let mut out = serde_json::Map::new();
+    for raw in q.get("ips").map(String::as_str).unwrap_or("").split(',').map(str::trim).filter(|s| !s.is_empty()).take(200) {
+        let v = match raw.parse::<IpAddr>() {
+            Err(_) => serde_json::json!({"scope": "invalid"}),
+            Ok(ip) if ip_scope(&ip) == "local" => serde_json::json!({"scope": "local"}),
+            Ok(ip) => {
+                let rec = db.and_then(|r| r.lookup::<GeoRecord>(ip).ok()).and_then(|g| g.country);
+                match rec {
+                    Some(c) => serde_json::json!({
+                        "scope": "public",
+                        "country": c.iso_code,
+                        "name": c.names.as_ref().and_then(|n| n.get("en")).cloned(),
+                    }),
+                    None => serde_json::json!({"scope": "public", "country": null, "name": null}),
+                }
+            }
+        };
+        out.insert(raw.to_string(), v);
+    }
+    axum::Json(serde_json::json!({
+        "available": db.is_some(),
+        "source": "IP geolocation by DB-IP (https://db-ip.com), CC BY 4.0",
+        "results": out,
+    }))
+}
+
 // Live counters of the classifier, measured by the monitor since it started.
 async fn api_ml() -> axum::Json<serde_json::Value> {
     let s = ml_stats().lock().unwrap();
@@ -777,6 +868,7 @@ async fn run_api() {
         .route("/api/stream", axum::routing::get(api_stream))
         .route("/api/stats", axum::routing::get(api_stats))
         .route("/api/ml", axum::routing::get(api_ml))
+        .route("/api/geo", axum::routing::get(api_geo))
         .route("/api/predictions", axum::routing::get(api_predictions))
         .layer(axum::middleware::from_fn(require_token))
         .layer(tower_http::cors::CorsLayer::permissive());
@@ -1313,6 +1405,17 @@ mod tests {
         assert_eq!(feat(&f, "Init_Win_bytes_backward"), -1.0);
         assert_eq!(feat(&f, "Flow Packets/s"), 0.0); // zero duration must not divide by zero
         assert_eq!(feat(&f, "Total Backward Packets"), 0.0);
+    }
+
+    #[test]
+    fn only_public_addresses_are_looked_up() {
+        let scope = |s: &str| ip_scope(&s.parse::<IpAddr>().unwrap());
+        for local in ["10.1.2.3", "172.17.0.2", "192.168.1.5", "127.0.0.1", "169.254.1.1", "100.64.0.1", "0.0.0.0", "::1", "fe80::1", "fd12::1", "::ffff:192.168.1.5"] {
+            assert_eq!(scope(local), "local", "{local}");
+        }
+        for public in ["8.8.8.8", "1.1.1.1", "100.128.0.1", "172.32.0.1", "2001:4860:4860::8888", "::ffff:8.8.8.8"] {
+            assert_eq!(scope(public), "public", "{public}");
+        }
     }
 
     #[test]

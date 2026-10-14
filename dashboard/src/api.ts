@@ -185,3 +185,18 @@ export async function fetchModelReport(): Promise<ModelReport> {
   if (!r.ok) throw new Error(`model_report.json returned ${r.status}`);
   return (await r.json()) as ModelReport;
 }
+
+// ---- Attack Map ----
+export interface GeoResult {
+  scope: "local" | "public" | "invalid";
+  country?: string | null; // ISO 3166-1 alpha-2
+  name?: string | null;
+}
+export interface GeoResponse {
+  available: boolean;
+  source: string;
+  results: Record<string, GeoResult>;
+}
+
+export const fetchGeo = (ips: string[]): Promise<GeoResponse> =>
+  getJson<GeoResponse>(`/api/geo?ips=${encodeURIComponent(ips.join(","))}`);
