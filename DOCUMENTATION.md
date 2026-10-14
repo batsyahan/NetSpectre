@@ -1,51 +1,20 @@
-# NetSpectre Project Documentation
+# NetSpectre documentation
 
-## Overview
-NetSpectre is a final year project aimed at addressing the vulnerabilities associated with speculative execution in modern processors. This project seeks to implement and analyze the security implications of such vulnerabilities through comprehensive testing.
+NetSpectre is an ML-based network intrusion detection system (IDS) for home networks. It detects and reports suspicious traffic; it does not block it.
 
-## Architecture
-The architecture of the NetSpectre project consists of several key components:
-- **Client-Server Model**: The architecture is built on a client-server model where the client interacts with the server to exploit vulnerabilities.
-- **Data Flow**: Detailed data flow diagrams outlining information transfer among components.
-- **Modules**: Each module is designed for specific functionalities such as vulnerability detection, reporting, and mitigation strategies.
+| Part | Where | What it does |
+|---|---|---|
+| Monitor | `core/` (Rust) | Captures packets with libpcap, builds bidirectional flows, computes 35 CICFlowMeter-style features, groups classified flows into alerts, stores them in SQLite, serves the REST API and live event stream, deletes data older than 30 days. |
+| ML service | `ml/` (Python) | gRPC service: XGBoost classifier (15 CICIDS2017 classes, ONNX), autoencoder anomaly score (ONNX), TreeSHAP reasons. Training and evaluation scripts live here too. |
+| Contract | `shared/netspectre.proto` | Messages and the `Inference` service shared by Rust and Python. |
+| Dashboard | `dashboard/` (React + TypeScript) | Alerts, devices, attack types, IP lookup, reports, attack guide, settings, privacy and terms. |
+| Mobile app | `mobile/` (Expo) | Alert list with acknowledge/dismiss and the full dashboard in a second tab. |
+| Deployment | `docker-compose.yml` | ML service, monitor and dashboard containers. |
 
-## Phases
-The project is divided into several phases:
-1. **Research Phase**
-   - Literature review on speculative execution vulnerabilities.
-   - Identifying existing frameworks and methodologies.
-   
-2. **Design Phase**
-   - Designing the architecture and components.
-   - Creating initial prototypes for testing.
+Where to read more:
 
-3. **Implementation Phase**
-   - Coding the modules based on the designs.
-   - Performing unit and integration tests.
-
-4. **Testing Phase**
-   - Comprehensive testing for vulnerabilities.
-   - User acceptance testing (UAT).
-
-5. **Deployment Phase**
-   - Final deployment of the project.
-   - Documentation of the deployment process.
-
-6. **Maintenance Phase**
-   - Ongoing support and updates based on user feedback.
-
-## Technical Specifications
-The technical specifications of the project include:
-- **Programming Languages**: Python, C/C++
-- **Frameworks**: Flask for web interaction, TensorFlow for machine learning applications.
-- **Operating Systems**: Linux-based systems are preferred for better performance.
-- **Database**: SQLite for lightweight storage and retrieval of testing data.
-
-## Implementation Roadmap
-The following roadmap outlines the timeline and milestones for the project:
-- **Week 1-2**: Complete the research phase and finalize the project proposal.
-- **Week 3-5**: Begin the design phase and complete initial prototypes.
-- **Week 6-10**: Implement the core functionalities and conduct preliminary tests.
-- **Week 11-12**: Conduct extensive testing and prepare for deployment.
-- **Week 13**: Deploy the final version and gather user feedback.
-- **Week 14 onwards**: Maintain and update the project as needed.
+- `README.md`: quick start, configuration, API, demo script, tests.
+- `docs/RESULTS.md`: measured latency, live detection checks and deployment findings.
+- `docs/EVAL_TEST_SET.txt`: per-class results on the 499,605-flow test set.
+- `docs/EVAL_LEAVE_DAY_OUT.txt`: detection of attack types never seen in training.
+- `docs/REPORT_CORRECTIONS.md`: corrected figures and wording for the project report.
