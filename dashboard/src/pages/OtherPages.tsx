@@ -218,9 +218,10 @@ export function AttackGuidePage() {
             &quot;Anomaly (unknown)&quot; for traffic that looks unusual but matches none of these classes.
           </li>
           <li>
-            <strong>Test:</strong> trained on earlier capture days and tested on later days the model never saw, which is stricter than a
-            random split. Scores below are from the original XGBoost run on that split. Real home traffic differs from this dataset,
-            so live accuracy will be lower.
+            <strong>Test:</strong> for every capture day and attack type, the first 80% of the flows (in recorded order) were used for
+            training and the last 20% for testing, so the model never saw the test flows. They still come from the same days and
+            attack runs as the training flows, so scores are optimistic. Scores below are from the original XGBoost run on that split.
+            Real home traffic differs from this dataset, so live accuracy will be lower.
           </li>
           <li>
             <strong>Reading the scores:</strong> precision is how many alerts of a class were correct; recall is how many real attacks
