@@ -1,4 +1,5 @@
 // Typed access to the monitor's REST API (served on :8080, proxied by nginx or vite as /api).
+import { authHeaders } from "./auth";
 
 export interface Device {
   ip: string;
@@ -44,8 +45,12 @@ export type AlertStatus = "new" | "acknowledged" | "dismissed";
 // The API clamps `limit` to 500.
 export const ALERT_LIMIT = 500;
 
+// Thrown when the monitor rejects the request because this device has no (or a wrong) API token.
+export class AuthError extends Error {}
+
 async function getJson<T>(url: string): Promise<T> {
-  const r = await fetch(url);
+  const r = await fetch(url, { headers: authHeaders() });
+  if (r.status === 401) throw new AuthError("API token required");
   if (!r.ok) throw new Error(`${url} returned ${r.status}`);
   return (await r.json()) as T;
 }
@@ -61,7 +66,7 @@ export const fetchStats = (): Promise<Stats> => getJson<Stats>("/api/stats");
 
 export async function fetchHealth(): Promise<boolean> {
   try {
-    const r = await fetch("/api/health");
+    const r = await fetch("/api/health", { headers: authHeaders() });
     return r.ok;
   } catch {
     return false;
@@ -71,7 +76,7 @@ export async function fetchHealth(): Promise<boolean> {
 export async function postStatus(id: number, status: AlertStatus): Promise<void> {
   const r = await fetch("/api/alerts/status", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ id, status }),
   });
   if (!r.ok) throw new Error(`status update returned ${r.status}`);

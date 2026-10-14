@@ -349,16 +349,7 @@ fn start_worker(addr: String) {
     });
 }
 
-fn open_db() -> rusqlite::Connection {
-    let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
-    if let Some(dir) = std::path::Path::new(&path).parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let db = rusqlite::Connection::open(&path).expect("open db");
-    let _ = db.pragma_update(None, "journal_mode", "WAL");
-    let _ = db.pragma_update(None, "synchronous", "NORMAL");
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS alerts (
+const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ts_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
             src_ip TEXT NOT NULL,
@@ -373,8 +364,17 @@ fn open_db() -> rusqlite::Connection {
             first_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
             last_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
             flow_count INTEGER NOT NULL DEFAULT 0
-        );",
-    )
+        );";
+
+fn open_db() -> rusqlite::Connection {
+    let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
+    if let Some(dir) = std::path::Path::new(&path).parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let db = rusqlite::Connection::open(&path).expect("open db");
+    let _ = db.pragma_update(None, "journal_mode", "WAL");
+    let _ = db.pragma_update(None, "synchronous", "NORMAL");
+    db.execute_batch(SCHEMA)
     .expect("create schema");
     let has_col = db
         .prepare("SELECT 1 FROM pragma_table_info('alerts') WHERE name = 'explanation'")
@@ -384,7 +384,7 @@ fn open_db() -> rusqlite::Connection {
         let _ = db.execute("ALTER TABLE alerts ADD COLUMN explanation TEXT", []);
     }
     use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666));
+    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)); // owner writes, others may only read
     eprintln!("alert database: {path}");
     db
 }
@@ -540,19 +540,39 @@ fn ct_eq(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-// Requests from this machine pass; anything else needs the x-api-token header to match NS_API_TOKEN.
+// Who may use the API without a token: programs on this machine talking to it directly, and browsers on
+// this machine going through the dashboard's nginx proxy (nginx sets X-Forwarded-For to the real client).
+// Everyone else (phone, other LAN devices, anyone reaching nginx from the network) needs NS_API_TOKEN,
+// sent as the x-api-token header or, for EventSource and download links, as a ?token= query parameter.
+fn authorized(peer_loopback: bool, forwarded_for: Option<&str>, header_token: Option<&str>, query: Option<&str>, want: &str) -> bool {
+    let local = peer_loopback
+        && forwarded_for.map_or(true, |f| {
+            f.split(',').next().and_then(|ip| ip.trim().parse::<std::net::IpAddr>().ok()).is_some_and(|ip| ip.is_loopback())
+        });
+    if local {
+        return true;
+    }
+    let query_token = query.and_then(|q| q.split('&').find_map(|kv| kv.strip_prefix("token=")));
+    let got = header_token.or(query_token).unwrap_or("");
+    !want.is_empty() && ct_eq(got, want)
+}
+
 async fn require_token(
     axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    if peer.ip().is_loopback() {
-        return next.run(req).await;
-    }
     let want = env::var("NS_API_TOKEN").unwrap_or_default();
-    let got = req.headers().get("x-api-token").and_then(|v| v.to_str().ok()).unwrap_or("");
-    if want.is_empty() || !ct_eq(got, &want) {
+    let h = req.headers();
+    let ok = authorized(
+        peer.ip().is_loopback(),
+        h.get("x-forwarded-for").and_then(|v| v.to_str().ok()),
+        h.get("x-api-token").and_then(|v| v.to_str().ok()),
+        req.uri().query(),
+        &want,
+    );
+    if !ok {
         return axum::http::StatusCode::UNAUTHORIZED.into_response();
     }
     next.run(req).await
@@ -729,7 +749,10 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::UnboundedReceiver<p
 
 // Privacy policy promises at most NS_RETENTION_DAYS (default 30) of alerts and devices.
 fn purge_old(days: u32) -> (usize, usize) {
-    let db = open_db();
+    purge_in(&open_db(), days)
+}
+
+fn purge_in(db: &rusqlite::Connection, days: u32) -> (usize, usize) {
     let cut = format!("-{days} days");
     let a = db
         .execute("DELETE FROM alerts WHERE ts_utc < strftime('%Y-%m-%dT%H:%M:%SZ','now',?1)", [&cut])
@@ -1002,6 +1025,46 @@ mod tests {
         assert_eq!(feat(&f, "Init_Win_bytes_backward"), -1.0);
         assert_eq!(feat(&f, "Flow Packets/s"), 0.0); // zero duration must not divide by zero
         assert_eq!(feat(&f, "Total Backward Packets"), 0.0);
+    }
+
+    #[test]
+    fn local_requests_need_no_token() {
+        assert!(authorized(true, None, None, None, "tok"));                 // curl on this machine
+        assert!(authorized(true, Some("127.0.0.1"), None, None, "tok"));    // browser on this machine via nginx
+        assert!(authorized(true, None, None, None, ""));                    // works even with no token configured
+    }
+
+    #[test]
+    fn remote_requests_need_the_token() {
+        assert!(!authorized(true, Some("192.168.1.20"), None, None, "tok")); // phone via nginx: no bypass any more
+        assert!(!authorized(false, None, None, None, "tok"));
+        assert!(!authorized(false, None, Some("wrong"), None, "tok"));
+        assert!(authorized(false, None, Some("tok"), None, "tok"));
+        assert!(authorized(true, Some("192.168.1.20"), None, Some("limit=5&token=tok"), "tok")); // EventSource / download link
+        assert!(!authorized(true, Some("192.168.1.20"), None, Some("token=tok2"), "tok"));
+        assert!(!authorized(false, None, Some(""), None, ""));               // no token configured: remote access stays closed
+        assert!(!authorized(true, Some("not-an-ip"), None, None, "tok"));
+    }
+
+    #[test]
+    fn retention_deletes_only_old_rows() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch(SCHEMA).unwrap();
+        db.execute_batch(
+            "ALTER TABLE alerts ADD COLUMN explanation TEXT;
+             INSERT INTO alerts (ts_utc, src_ip, label, flow_count, avg_confidence)
+               VALUES (strftime('%Y-%m-%dT%H:%M:%SZ','now','-40 days'), '10.0.0.1', 'PortScan', 10, 0.9),
+                      (strftime('%Y-%m-%dT%H:%M:%SZ','now','-29 days'), '10.0.0.2', 'PortScan', 10, 0.9),
+                      (strftime('%Y-%m-%dT%H:%M:%SZ','now'), '10.0.0.3', 'DDoS', 3, 0.8);
+             INSERT INTO devices (ip, first_seen, last_seen, flow_count)
+               VALUES ('10.0.0.1', '2020-01-01T00:00:00Z', strftime('%Y-%m-%dT%H:%M:%SZ','now','-31 days'), 1),
+                      ('10.0.0.3', '2020-01-01T00:00:00Z', strftime('%Y-%m-%dT%H:%M:%SZ','now'), 5);",
+        )
+        .unwrap();
+        assert_eq!(purge_in(&db, 30), (1, 1));
+        let left: i64 = db.query_row("SELECT COUNT(*) FROM alerts", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 2);
+        assert_eq!(purge_in(&db, 30), (0, 0));
     }
 
     #[test]

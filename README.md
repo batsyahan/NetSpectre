@@ -65,7 +65,7 @@ Phone notifications send only the attack type, severity, source IP, flow count a
 
 ### REST API
 
-The monitor serves a JSON API on port 8080 (token required except from loopback).
+The monitor serves a JSON API on port 8080. Programs and browsers on the monitor's own machine need no token; every other device (phone, other computers, and anyone reaching the dashboard on port 5173 over the network) must send `NS_API_TOKEN` as the `x-api-token` header, or as `?token=` for the event stream and CSV download. The dashboard asks for the token once and keeps it in that browser; the mobile app passes it automatically.
 
 | Endpoint | Description |
 |---|---|
