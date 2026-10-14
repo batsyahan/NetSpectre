@@ -8,6 +8,7 @@ import { SEVERITY } from "../lib";
 import { POLL_SECONDS, type Monitor } from "../data";
 import { attackColors, countByLabel, fmtTime, share, sum } from "../metrics";
 import { Link } from "../router";
+import { withToken } from "../auth";
 
 export function AttackTypesPage({ m }: { m: Monitor }) {
   const rows = m.stats?.by_label ?? countByLabel(m.alerts);
@@ -85,7 +86,7 @@ export function ReportsPage({ m }: { m: Monitor }) {
       <Panel title="Export">
         <p className="prose">Download every stored alert as a CSV file for a spreadsheet or for the project report.</p>
         <p>
-          <a className="btn-ghost" href="/api/alerts/export" download>
+          <a className="btn-ghost" href={withToken("/api/alerts/export")} download>
             Export all alerts (CSV)
           </a>
         </p>
