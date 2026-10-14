@@ -4,6 +4,7 @@ import { DeviceSummary } from "../components/DeviceSummary";
 import { Panel, Select } from "../components/ui";
 import { useDeviceAlerts, type Monitor } from "../data";
 import { navigate, useLocation } from "../router";
+import { withToken } from "../auth";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All" },
@@ -37,7 +38,7 @@ export function AlertsPage({ m }: { m: Monitor }) {
           Showing {shown.length} of {base.length}
           {!device && base.length >= 500 ? " (newest 500)" : ""}
         </span>
-        <a className="btn-ghost" href="/api/alerts/export" download>
+        <a className="btn-ghost" href={withToken("/api/alerts/export")} download>
           Export CSV
         </a>
       </div>

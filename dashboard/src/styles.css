@@ -217,6 +217,10 @@ table.sources td, table.sources th { padding-left: 6px; padding-right: 6px; }
 .notice { margin-bottom: 18px; padding: 12px 14px; border: 1px solid #5a4a16; background: #241d0b; color: #f2dca0; border-radius: 8px; font-size: 13.5px; line-height: 1.5; }
 mark.confirm { background: #5a4a16; color: #ffe9a8; padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 0.94em; }
 
+.token-panel { max-width: 620px; }
+.token-form { display: flex; gap: 8px; margin-top: 12px; }
+.token-form input { flex: 1; min-width: 0; }
+
 /* Responsive */
 @media (max-width: 1280px) {
   .metrics { grid-template-columns: repeat(2, 1fr); }

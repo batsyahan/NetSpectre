@@ -1,6 +1,7 @@
 // Data hooks. One shared poller feeds every page; SSE "alert" events trigger an immediate reload.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AuthError,
   fetchAlerts,
   fetchDevices,
   fetchHealth,
@@ -11,6 +12,7 @@ import {
   type Device,
   type Stats,
 } from "./api";
+import { withToken } from "./auth";
 
 const POLL_MS = 10_000;
 export const POLL_SECONDS = POLL_MS / 1000;
@@ -25,6 +27,7 @@ export interface Monitor {
   updated: Date | null;
   now: number;
   actionError: string | null;
+  needsToken: boolean;
   setStatus: (id: number, status: AlertStatus) => Promise<void>;
   clearActionError: () => void;
 }
@@ -39,6 +42,7 @@ export function useMonitor(): Monitor {
   const [updated, setUpdated] = useState<Date | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [actionError, setActionError] = useState<string | null>(null);
+  const [needsToken, setNeedsToken] = useState(false);
   const alive = useRef(true);
 
   const load = useCallback(async () => {
@@ -54,13 +58,14 @@ export function useMonitor(): Monitor {
     // /api/stats is optional: an older monitor without it leaves stats null and the UI falls back.
     if (s.status === "fulfilled") setStats(s.value);
     setStale(a.status === "rejected" || d.status === "rejected");
+    setNeedsToken(a.status === "rejected" && a.reason instanceof AuthError);
     setLoaded(true);
   }, []);
 
   useEffect(() => {
     alive.current = true;
     void load();
-    const es = new EventSource("/api/stream");
+    const es = new EventSource(withToken("/api/stream"));
     es.addEventListener("alert", () => {
       void load();
     });
@@ -89,7 +94,7 @@ export function useMonitor(): Monitor {
 
   const clearActionError = useCallback(() => setActionError(null), []);
 
-  return { alerts, devices, stats, online, loaded, stale, updated, now, actionError, setStatus, clearActionError };
+  return { alerts, devices, stats, online, loaded, stale, updated, now, actionError, needsToken, setStatus, clearActionError };
 }
 
 // Full alert history for one device (the shared list only holds the newest 500 across all devices).
