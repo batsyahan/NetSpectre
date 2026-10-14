@@ -11,6 +11,8 @@ interface Alert {
 }
 
 const headers = { "x-api-token": API_TOKEN, "Content-Type": "application/json" };
+// The dashboard reads the token from the address fragment (never sent over the network) and then hides it.
+const DASHBOARD_WITH_TOKEN = API_TOKEN ? `${DASHBOARD_URL}/#token=${encodeURIComponent(API_TOKEN)}` : DASHBOARD_URL;
 
 export default function App() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -108,13 +110,13 @@ export default function App() {
       <View style={[s.body, s.webWrap, tab !== "dashboard" && s.hidden]}>
         {Platform.OS === "web" ? (
           // react-native-webview has no browser build; a plain iframe does the same job there.
-          <iframe key={webKey} src={DASHBOARD_URL} style={{ flex: 1, border: 0, width: "100%", height: "100%" }} />
+          <iframe key={webKey} src={DASHBOARD_WITH_TOKEN} style={{ flex: 1, border: 0, width: "100%", height: "100%" }} />
         ) : webError ? (
           <Text style={s.empty}>Cannot open {DASHBOARD_URL} ({webError}). Is the laptop on the same Wi-Fi and the dashboard running?</Text>
         ) : (
           <WebView
             ref={web}
-            source={{ uri: DASHBOARD_URL }}
+            source={{ uri: DASHBOARD_WITH_TOKEN }}
             style={s.web}
             startInLoadingState
             renderLoading={() => <ActivityIndicator style={s.loading} color="#60a5fa" />}

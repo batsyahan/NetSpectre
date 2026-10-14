@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { Header, Sidebar } from "./components/Shell";
 import { IconX } from "./components/icons";
+import { TokenPrompt } from "./components/TokenPrompt";
 import { useMonitor, type Monitor } from "./data";
 import { AlertsPage } from "./pages/AlertsPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -68,6 +69,9 @@ const ROUTES: Record<string, Route> = {
   },
 };
 
+// Pages that show no monitor data stay readable before a token is entered.
+const PUBLIC_PAGES = new Set(["/attack-guide", "/privacy", "/terms"]);
+
 const NOT_FOUND: Route = {
   title: "Page not found",
   subtitle: "That address does not exist",
@@ -104,7 +108,7 @@ export default function App() {
               </button>
             </div>
           )}
-          {route.render(m)}
+          {m.needsToken && !PUBLIC_PAGES.has(path) ? <TokenPrompt /> : route.render(m)}
           <footer className="foot">
             {m.updated ? `Updated ${m.updated.toLocaleTimeString("en-GB", { hourCycle: "h23" })}` : "Connecting"}
           </footer>
