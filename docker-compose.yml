@@ -25,6 +25,8 @@ services:
       NS_NTFY_TOPIC: ${NS_NTFY_TOPIC:-}
       NS_NTFY_MIN_SEVERITY: ${NS_NTFY_MIN_SEVERITY:-medium}
       NS_ANOMALY_IGNORE: 10.255.255.254   # trusted sources (comma-separated), e.g. your router's DNS
+      NS_MAX_FLOWS: ${NS_MAX_FLOWS:-100000}        # flood protection: flows tracked at once
+      NS_QUEUE_MAX: ${NS_QUEUE_MAX:-20000}         # finished flows waiting for the classifier
       NS_AE_THRESHOLD: ${NS_AE_THRESHOLD:-0.645}   # ae35_v2: <=0.5% false alarms on own held-out traffic
     volumes:
       - ./data:/data
