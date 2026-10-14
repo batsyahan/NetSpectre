@@ -239,6 +239,13 @@ mark.confirm { background: #5a4a16; color: #ffe9a8; padding: 1px 5px; border-rad
   .metrics, .row-lookup { grid-template-columns: 1fr; }
 }
 
+@media (max-width: 600px) {
+  .nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav-link { flex: 0 0 auto; }
+  .panel { padding: 14px 14px 16px; }
+}
+
 /* Printable incident report */
 .report { display: none; }
 @media print {
