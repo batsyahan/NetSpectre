@@ -6,6 +6,7 @@ import { useMonitor, type Monitor } from "./data";
 import { AlertsPage } from "./pages/AlertsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DevicesPage } from "./pages/DevicesPage";
+import { MlAdvancedPage } from "./pages/MlAdvancedPage";
 import { PrivacyPage, TermsPage } from "./pages/LegalPages";
 import { AttackGuidePage, AttackTypesPage, IpLookupPage, ReportsPage, SettingsPage } from "./pages/OtherPages";
 import { Link, useLocation } from "./router";
@@ -41,6 +42,11 @@ const ROUTES: Record<string, Route> = {
     title: "IP Lookup",
     subtitle: "Look up one device by IP address",
     render: (m) => <IpLookupPage m={m} />,
+  },
+  "/ml-advanced": {
+    title: "ML Advanced",
+    subtitle: "Model performance, predictions and explainability",
+    render: () => <MlAdvancedPage />,
   },
   "/reports": {
     title: "Reports",

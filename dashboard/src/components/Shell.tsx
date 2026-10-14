@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "../router";
 import {
   IconBell,
+  IconCpu,
   IconChart,
   IconDashboard,
   IconFile,
@@ -19,6 +20,7 @@ const NAV: { to: string; label: string; icon: ReactNode }[] = [
   { to: "/devices", label: "Devices", icon: <IconMonitor /> },
   { to: "/attack-types", label: "Attack Types", icon: <IconShield /> },
   { to: "/ip-lookup", label: "IP Lookup", icon: <IconSearch /> },
+  { to: "/ml-advanced", label: "ML Advanced", icon: <IconCpu /> },
   { to: "/reports", label: "Reports", icon: <IconChart /> },
   { to: "/attack-guide", label: "Attack Guide", icon: <IconFile /> },
   { to: "/settings", label: "Settings", icon: <IconSettings /> },
