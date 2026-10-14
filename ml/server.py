@@ -13,13 +13,14 @@ n_feat = len(json.load(open("models/feature_cols_35.json")))
 import os
 ENSEMBLE = os.environ.get("NS_ENSEMBLE", "0") == "1"
 LOG_PATH = os.environ.get("NS_LOG_FLOWS", "")
-sess_x = ort.InferenceSession("models/multiclass_xgb35_v3.onnx")
+MODEL = os.environ.get("NS_MODEL", "multiclass_xgb35_v3")
+sess_x = ort.InferenceSession(f"models/{MODEL}.onnx")
 sess_c = ort.InferenceSession("models/multiclass_cat35.onnx")
 import xgboost as xgb
 from explain import explain
 FEATURES = json.load(open("models/feature_cols_35.json"))
 booster = xgb.Booster()
-booster.load_model("models/multiclass_xgb35_v3.json")
+booster.load_model(f"models/{MODEL}.json")
 booster.predict(xgb.DMatrix(np.zeros((1, len(FEATURES)), dtype=np.float32)), pred_contribs=True)  # warm-up
 
 _meta = json.load(open("models/ae35_meta.json"))
