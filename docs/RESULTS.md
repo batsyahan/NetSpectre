@@ -65,3 +65,23 @@ Single short trial per path: suggestive only (a medium-sized response may look u
 - Live alert push: the `/api/stream` endpoint emitted an `alert` event for each alert raised by the smoke-test scan, with keep-alive comments every 15 s; the dashboard updates without waiting for its 10 s fallback poll.
 - Phone alerts: after the smoke-test port scan, two ntfy notifications reached an Android phone (PortScan, 10 ports, 86% confidence; "Anomaly (unknown)", 5 flows, 100%). Delivery latency was not measured.
 - Automated tests: 35 tests (17 Rust, 8 dashboard, 10 ML service) run on GitHub Actions for every push; all passed on a clean GitHub-hosted runner.
+
+## Own-network baseline and model updates (14 Oct 2026)
+
+Normal traffic was recorded on the developer laptop for about 80 minutes (`scripts/gen_benign.sh` browsing, downloads, DNS, API calls over IPv4; monitor on `eth1`, flows logged by the ML service). 2,031 flows were kept in `baselines/benign_capture.csv`; the last 30% (in time order) is used only for testing. Checker: `ml/check_capture.py`.
+
+**Autoencoder.** The deployed autoencoder (`ae35`, threshold 0.5) flagged 20% of this normal traffic (12.9% of the held-out part), which explains the false "Anomaly (unknown)" alerts seen live. A new autoencoder (`ml/retrain_ae35_v2.py`, `ae35_v2`) was trained on 400k CICIDS2017 benign flows plus the own-network flows, with the threshold chosen from data (<= 0.5% false alarms on held-out own traffic and <= 1% on CICIDS benign):
+
+| Model | False alarms, own traffic | False alarms, CICIDS benign | DDoS flagged | Slowloris | Slowhttptest |
+|---|---|---|---|---|---|
+| ae35 @ 0.5 (previous) | 12.88% | 0.21% | 0.0% | 12.5% | 2.1% |
+| ae35 @ 0.2369 | 25.77% | 1.00% | 73.8% | 23.9% | 85.9% |
+| ae35_v2 @ 0.645 (deployed) | 0.61% | 0.14% | 0.0% | 6.5% | 1.8% |
+
+Finding: the old autoencoder's DDoS "detection" at 0.2369 came with a quarter of real browsing flagged. CICIDS2017 DDoS is an HTTP flood, and at the level of single flows it resembles ordinary web traffic, so a per-flow autoencoder cannot separate the two on a real network. The autoencoder is kept as a detector of clearly unusual traffic, not as a reliable zero-day detector.
+
+**Classifier.** A retrain with the own-network flows (`ml/retrain_xgb35_v4.py`, v4) was tested and **not deployed**. The first attempt taught refused connections (one SYN out, one reset back, logged while the API was restarting) as BENIGN; these are identical to single port-scan probes, and v4 then missed the smoke-test scan (0 alerts; v3 raised `PortScan: 10 ports in 10s`). With such one-packet-each-way flows excluded, v4 matched v3 on live data (own held-out traffic 380/380 vs 379/380 BENIGN; smoke-test connect() probes 1224/1266 PortScan for both) but scored lower on the CICIDS2017 test set (macro F1 0.840 vs 0.850, benign FPR 0.143% vs 0.131%), so v3 stays.
+
+Deployed after these tests: classifier `multiclass_xgb35_v3`, autoencoder `ae35_v2` at 0.645 (`docker-compose.yml`); `scripts/smoke_test.sh` passes 6/6.
+
+Limitations found: the monitor only analyses IPv4 TCP/UDP, so browser traffic over IPv6/QUIC is invisible; on WSL2 the monitor sees little of the Windows host's traffic.
