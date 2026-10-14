@@ -123,6 +123,11 @@ export function AttackMapPage({ m }: { m: Monitor }) {
   const rows = countByLabel(filtered);
   const slices = toSlices(rows, 6);
 
+  const SEV_OPTIONS: { value: MapFilters["severity"]; label: string }[] = [
+    { value: "all", label: "All severities" },
+    ...SEV_ORDER.map((sev): { value: MapFilters["severity"]; label: string } => ({ value: sev, label: sev.charAt(0).toUpperCase() + sev.slice(1) })),
+  ];
+
   return (
     <>
       <div className="map-filters panel">
@@ -132,7 +137,7 @@ export function AttackMapPage({ m }: { m: Monitor }) {
           label="Severity"
           showLabel
           value={f.severity}
-          options={[{ value: "all" as MapFilters["severity"], label: "All severities" }, ...SEV_ORDER.map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }))]}
+          options={SEV_OPTIONS}
           onChange={(v: MapFilters["severity"]) => set("severity", v)}
         />
         <Select label="Device (source)" showLabel value={f.source} options={[{ value: "all", label: "All sources" }, ...sources.map((s) => ({ value: s, label: s }))]} onChange={(v) => set("source", v)} />
