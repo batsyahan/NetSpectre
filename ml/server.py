@@ -14,6 +14,7 @@ import os
 ENSEMBLE = os.environ.get("NS_ENSEMBLE", "0") == "1"
 LOG_PATH = os.environ.get("NS_LOG_FLOWS", "")
 MODEL = os.environ.get("NS_MODEL", "multiclass_xgb35_v3")
+AE_MODEL = os.environ.get("NS_AE_MODEL", "ae35")
 sess_x = ort.InferenceSession(f"models/{MODEL}.onnx")
 sess_c = ort.InferenceSession("models/multiclass_cat35.onnx")
 import xgboost as xgb
@@ -23,10 +24,10 @@ booster = xgb.Booster()
 booster.load_model(f"models/{MODEL}.json")
 booster.predict(xgb.DMatrix(np.zeros((1, len(FEATURES)), dtype=np.float32)), pred_contribs=True)  # warm-up
 
-_meta = json.load(open("models/ae35_meta.json"))
+_meta = json.load(open(f"models/{AE_MODEL}_meta.json"))
 _mu = np.array(_meta["mu"], dtype=np.float32)
 _sd = np.array(_meta["sd"], dtype=np.float32)
-_ae = ort.InferenceSession("models/ae35.onnx")
+_ae = ort.InferenceSession(f"models/{AE_MODEL}.onnx")
 
 
 def anomaly(x):
