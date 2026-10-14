@@ -29,11 +29,13 @@ Xl = live[F].to_numpy("float32")
 # --- new: own-network normal traffic ---
 cap = load("../baselines/benign_capture.csv")
 n_raw = len(cap)
-cap_sig = ((cap["Init_Win_bytes_forward"] == 1024) & (cap["Total Fwd Packets"] <= 2)).to_numpy()
-cap = cap[~cap_sig].drop_duplicates().reset_index(drop=True)  # drop anything that looks like an nmap probe
+# A refused connection (one SYN out, one reset back) looks exactly like one port-scan probe.
+# Only the alert grouping (10 ports in 10 s) can tell them apart, so such flows must not be taught as BENIGN.
+cap_sig = ((cap["Total Fwd Packets"] <= 2) & (cap["Total Backward Packets"] <= 1)).to_numpy()
+cap = cap[~cap_sig].drop_duplicates().reset_index(drop=True)
 c_tr, c_ho = split(np.arange(len(cap)))
 Xc = cap[F].to_numpy("float32")
-print(f"benign capture: {n_raw} rows, {int(cap_sig.sum())} scan-like dropped, {len(cap)} unique | train {len(c_tr)} holdout {len(c_ho)}")
+print(f"benign capture: {n_raw} rows, {int(cap_sig.sum())} probe-like (refused/unanswered) dropped, {len(cap)} unique | train {len(c_tr)} holdout {len(c_ho)}")
 print(f"v3 live data: train scan {len(s_tr)} benign {len(b_tr)} | holdout scan {len(s_ho)} benign {len(b_ho)}")
 
 # --- CICIDS2017 training part, same caps/oversampling as v3 ---
@@ -73,6 +75,8 @@ def probs(s, x):
 def lab(s, x): return np.array(classes)[probs(s, x).argmax(1)]
 te = pd.read_parquet("data/processed/test_temporal2.parquet"); Xt = te[F].to_numpy("float32"); yt = te["Label"].to_numpy()
 labs = sorted(set(yt)); Xi = indep[F].to_numpy("float32")
+import os
+Xcs = load("../baselines/connect_scan_flows.csv")[F].to_numpy("float32") if os.path.exists("../baselines/connect_scan_flows.csv") else None
 f1 = lambda yp, ls: f1_score(yt, yp, labels=ls, average="macro", zero_division=0)
 print()
 for name in ("multiclass_xgb35_v3", "multiclass_xgb35_v4"):
@@ -84,5 +88,7 @@ for name in ("multiclass_xgb35_v3", "multiclass_xgb35_v4"):
           f" | Bot F1 {f1(pt, ['Bot']):.3f} | PortScan F1 {f1(pt, ['PortScan']):.3f}")
     print(f"    live scans -> PortScan {a}/{len(s_ho)} | independent scans -> PortScan {c}/{len(Xi)}"
           f" | old live benign -> BENIGN {b}/{len(b_ho)} | NEW capture holdout -> BENIGN {hb}/{len(c_ho)}")
+    if Xcs is not None:
+        print(f"    connect() scan probes (smoke test) -> PortScan {int((lab(s, Xcs) == 'PortScan').sum())}/{len(Xcs)}")
     if hb < len(c_ho):
         print("    capture-holdout false positives:", pd.Series(h[h != "BENIGN"]).value_counts().to_dict())
