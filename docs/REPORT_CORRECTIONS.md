@@ -109,5 +109,5 @@ Every attack type in CICIDS2017 was recorded on a single day, so training on fou
 | Thursday | Web attacks, Infiltration | 0.6% | 86.3% | 86.6% |
 | Friday | DDoS, PortScan, Bot | 0.3% | 37.1% | 56.2% |
 
-Suggested text: "A supervised classifier cannot name attacks it has never seen: on held-out days it caught 1-32% of unseen brute-force, DoS, PortScan and Bot flows, but 86% of unseen web attacks. The autoencoder is the main defence against unknown attacks: at a threshold of 0.2369 it raised DDoS detection from 63% to 96% and DoS Slowhttptest from 10% to 72%, at the cost of about 1% of benign flows flagged instead of 0.3%."
+Suggested text: "A supervised classifier cannot name attacks it has never seen: on held-out days it caught 0-32% of unseen brute-force, DoS, PortScan and Bot flows and 63% of DDoS, but 86% of unseen web attacks. The autoencoder is the main defence against unknown attacks: at a threshold of 0.2369 it raised DDoS detection from 63% to 96% and DoS Slowhttptest from 10% to 72%, at the cost of about 1% of benign flows flagged instead of 0.3%."
 
