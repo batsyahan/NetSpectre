@@ -30,7 +30,8 @@ fn parse(data: &[u8], ts_us: u64) -> Option<Pkt> {
         return None;
     }
     let ip = &data[14..];
-    let (src, dst, proto, ihl) = match u16::from_be_bytes([data[12], data[13]]) {
+    // v6_extra: how many header bytes longer this packet is than the same packet over IPv4
+    let (src, dst, proto, ihl, v6_extra) = match u16::from_be_bytes([data[12], data[13]]) {
         0x0800 => {
             if ip.len() < 20 || ip[0] >> 4 != 4 {
                 return None;
@@ -39,7 +40,7 @@ fn parse(data: &[u8], ts_us: u64) -> Option<Pkt> {
             if ihl < 20 || ip.len() < ihl {
                 return None;
             }
-            (IpAddr::from([ip[12], ip[13], ip[14], ip[15]]), IpAddr::from([ip[16], ip[17], ip[18], ip[19]]), ip[9], ihl)
+            (IpAddr::from([ip[12], ip[13], ip[14], ip[15]]), IpAddr::from([ip[16], ip[17], ip[18], ip[19]]), ip[9], ihl, 0)
         }
         // IPv6: fixed 40-byte header; TCP/UDP directly after it (extension headers are not followed).
         0x86DD => {
@@ -48,7 +49,7 @@ fn parse(data: &[u8], ts_us: u64) -> Option<Pkt> {
             }
             let s: [u8; 16] = ip[8..24].try_into().ok()?;
             let d: [u8; 16] = ip[24..40].try_into().ok()?;
-            (IpAddr::from(s), IpAddr::from(d), ip[6], 40)
+            (IpAddr::from(s), IpAddr::from(d), ip[6], 40, 20)
         }
         _ => return None,
     };
@@ -69,9 +70,12 @@ fn parse(data: &[u8], ts_us: u64) -> Option<Pkt> {
         _ => return None, // TCP and UDP only for now
     };
     let win = if proto == 6 { u16::from_be_bytes([l4[14], l4[15]]) as u32 } else { 0 };
-    // like a real wire: Ethernet frames are at least 60 bytes, padding counts as payload (as in CICIDS2017)
-    let frame = (data.len() as u32).max(60);
-    let payload = frame.saturating_sub(14 + ihl as u32 + l4hdr);
+    // like a real wire: Ethernet frames are at least 60 bytes, padding counts as payload (as in CICIDS2017).
+    // The models learned this from IPv4, so an IPv6 packet is measured as the same packet would be over IPv4
+    // (20 header bytes fewer, then the 60-byte minimum). Without this, a refused IPv6 connection has no
+    // padding "payload" and the model calls IPv6 scan probes benign.
+    let frame = (data.len() as u32 - v6_extra).max(60);
+    let payload = frame.saturating_sub(14 + ihl as u32 - v6_extra + l4hdr);
     Some(Pkt { src, dst, sport, dport, proto, payload, hdr_len: l4hdr, flags, win, l4hdr, ts_us })
 }
 
@@ -947,9 +951,9 @@ mod tests {
         assert_eq!(p.src.to_string(), "2001:db8::1");
         assert_eq!(p.dst.to_string(), "2001:db8::2");
         assert_eq!((p.sport, p.dport, p.proto, p.flags, p.win, p.l4hdr), (50000, 443, 6, 0x02, 64800, 20));
-        assert_eq!(p.payload, 0); // 74-byte frame: no Ethernet padding, no data
+        assert_eq!(p.payload, 6); // measured like the IPv4 equivalent: 54 bytes, padded to 60 (as CICIDS2017 counts it)
         let u = parse(&frame6(17, 5353, 53, 0, 0, 30), 0).expect("IPv6 UDP should parse");
-        assert_eq!((u.dport, u.proto, u.payload, u.l4hdr), (53, 17, 30, 8));
+        assert_eq!((u.dport, u.proto, u.payload, u.l4hdr), (53, 17, 30, 8)); // real data is unaffected
         let mut bad = frame6(6, 1, 2, 0, 0, 0);
         bad[14] = 0x45; // version nibble says IPv4
         assert!(parse(&bad, 0).is_none());
