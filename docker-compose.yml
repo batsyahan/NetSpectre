@@ -4,6 +4,9 @@ services:
     image: netspectre-ml
     ports:
       - "127.0.0.1:50051:50051"
+    environment:
+      NS_MODEL: ${NS_MODEL:-multiclass_xgb35_v4}      # v4 = v3 + own-network normal traffic
+      NS_AE_MODEL: ${NS_AE_MODEL:-ae35_v2}            # autoencoder trained on CICIDS + own-network normal traffic
     restart: unless-stopped
 
   monitor:
@@ -22,7 +25,7 @@ services:
       NS_NTFY_TOPIC: ${NS_NTFY_TOPIC:-}
       NS_NTFY_MIN_SEVERITY: ${NS_NTFY_MIN_SEVERITY:-medium}
       NS_ANOMALY_IGNORE: 10.255.255.254   # trusted sources (comma-separated), e.g. your router's DNS
-      NS_AE_THRESHOLD: ${NS_AE_THRESHOLD:-0.5}
+      NS_AE_THRESHOLD: ${NS_AE_THRESHOLD:-0.645}   # ae35_v2: <=0.5% false alarms on own held-out traffic
     volumes:
       - ./data:/data
     depends_on: [ml]
