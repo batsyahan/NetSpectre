@@ -85,3 +85,7 @@ Finding: the old autoencoder's DDoS "detection" at 0.2369 came with a quarter of
 Deployed after these tests: classifier `multiclass_xgb35_v3`, autoencoder `ae35_v2` at 0.645 (`docker-compose.yml`); `scripts/smoke_test.sh` passes 6/6.
 
 Limitations found: the monitor only analysed IPv4 TCP/UDP, so browser traffic over IPv6/QUIC was invisible (IPv6 support was added afterwards, see below); on WSL2 the monitor sees little of the Windows host's traffic.
+
+### IPv6 support (14 Oct 2026)
+
+The monitor now parses TCP and UDP over IPv6 as well as IPv4. A first version passed its unit tests but raised no alert for a port scan over IPv6: the models learned the CICIDS2017 convention that Ethernet padding of short frames counts as payload, and IPv6 frames are never padded. Replaying the 1,266 real connect() scan probes from `baselines/connect_scan_flows.csv` with IPv6 sizes turned 1,224 PortScan verdicts into 24. The monitor therefore measures each IPv6 packet as the same packet would be over IPv4 (20 header bytes fewer, then the 60-byte minimum). Live check after the fix: 15 refused IPv6 connections to `::1` raised `ALERT ::1 -> PortScan: 10 ports in 10s (avg confidence 1.00)`. The models have not been evaluated on other IPv6 attack traffic.
