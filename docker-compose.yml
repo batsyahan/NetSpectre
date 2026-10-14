@@ -5,7 +5,7 @@ services:
     ports:
       - "127.0.0.1:50051:50051"
     environment:
-      NS_MODEL: ${NS_MODEL:-multiclass_xgb35_v4}      # v4 = v3 + own-network normal traffic
+      NS_MODEL: ${NS_MODEL:-multiclass_xgb35_v3}      # v4 (own-network retrain) tested worse on CICIDS and no better live
       NS_AE_MODEL: ${NS_AE_MODEL:-ae35_v2}            # autoencoder trained on CICIDS + own-network normal traffic
     restart: unless-stopped
 
