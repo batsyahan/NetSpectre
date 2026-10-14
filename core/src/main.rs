@@ -1,7 +1,7 @@
 use pcap::{Capture, Device};
 use std::collections::HashMap;
 use std::env;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 #[allow(dead_code)]
@@ -12,8 +12,8 @@ mod pb {
 use pb::inference_client::InferenceClient;
 
 struct Pkt {
-    src: Ipv4Addr,
-    dst: Ipv4Addr,
+    src: IpAddr,
+    dst: IpAddr,
     sport: u16,
     dport: u16,
     proto: u8,
@@ -26,21 +26,32 @@ struct Pkt {
 }
 
 fn parse(data: &[u8], ts_us: u64) -> Option<Pkt> {
-    if data.len() < 14 || u16::from_be_bytes([data[12], data[13]]) != 0x0800 {
+    if data.len() < 14 {
         return None;
     }
     let ip = &data[14..];
-    if ip.len() < 20 {
-        return None;
-    }
-    let ihl = ((ip[0] & 0x0f) as usize) * 4;
-    let total_len = u16::from_be_bytes([ip[2], ip[3]]) as u32;
-    let proto = ip[9];
-    let src = Ipv4Addr::new(ip[12], ip[13], ip[14], ip[15]);
-    let dst = Ipv4Addr::new(ip[16], ip[17], ip[18], ip[19]);
-    if ip.len() < ihl {
-        return None;
-    }
+    let (src, dst, proto, ihl) = match u16::from_be_bytes([data[12], data[13]]) {
+        0x0800 => {
+            if ip.len() < 20 || ip[0] >> 4 != 4 {
+                return None;
+            }
+            let ihl = ((ip[0] & 0x0f) as usize) * 4;
+            if ihl < 20 || ip.len() < ihl {
+                return None;
+            }
+            (IpAddr::from([ip[12], ip[13], ip[14], ip[15]]), IpAddr::from([ip[16], ip[17], ip[18], ip[19]]), ip[9], ihl)
+        }
+        // IPv6: fixed 40-byte header; TCP/UDP directly after it (extension headers are not followed).
+        0x86DD => {
+            if ip.len() < 40 || ip[0] >> 4 != 6 {
+                return None;
+            }
+            let s: [u8; 16] = ip[8..24].try_into().ok()?;
+            let d: [u8; 16] = ip[24..40].try_into().ok()?;
+            (IpAddr::from(s), IpAddr::from(d), ip[6], 40)
+        }
+        _ => return None,
+    };
     let l4 = &ip[ihl..];
     let (sport, dport, l4hdr, flags) = match proto {
         6 if l4.len() >= 20 => (
@@ -58,14 +69,13 @@ fn parse(data: &[u8], ts_us: u64) -> Option<Pkt> {
         _ => return None, // TCP and UDP only for now
     };
     let win = if proto == 6 { u16::from_be_bytes([l4[14], l4[15]]) as u32 } else { 0 };
-    let _ = total_len;
     // like a real wire: Ethernet frames are at least 60 bytes, padding counts as payload (as in CICIDS2017)
     let frame = (data.len() as u32).max(60);
     let payload = frame.saturating_sub(14 + ihl as u32 + l4hdr);
     Some(Pkt { src, dst, sport, dport, proto, payload, hdr_len: l4hdr, flags, win, l4hdr, ts_us })
 }
 
-type Key = ((Ipv4Addr, u16), (Ipv4Addr, u16), u8);
+type Key = ((IpAddr, u16), (IpAddr, u16), u8);
 
 fn key_of(p: &Pkt) -> Key {
     let a = (p.src, p.sport);
@@ -106,8 +116,8 @@ impl Stat {
 
 #[derive(Default)]
 struct Flow {
-    src: Option<(Ipv4Addr, u16)>, // initiator = forward direction
-    dst: Option<(Ipv4Addr, u16)>,
+    src: Option<(IpAddr, u16)>, // initiator = forward direction
+    dst: Option<(IpAddr, u16)>,
     proto: u8,
     start_us: u64,
     last_us: u64,
@@ -868,6 +878,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::Ipv4Addr;
 
     fn approx(a: f64, b: f64) -> bool { (a - b).abs() < 1e-6 }
 
@@ -899,13 +910,52 @@ mod tests {
 
     fn pkt(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, flags: u8, win: u32, payload: u32, ts_us: u64) -> Pkt {
         Pkt {
-            src: Ipv4Addr::from(src), dst: Ipv4Addr::from(dst), sport, dport,
+            src: IpAddr::from(src), dst: IpAddr::from(dst), sport, dport,
             proto: 6, payload, hdr_len: 20, flags, win, l4hdr: 20, ts_us,
         }
     }
 
     fn feat(f: &Flow, name: &str) -> f64 {
         f.features().into_iter().find(|(n, _)| *n == name).unwrap_or_else(|| panic!("no feature {name}")).1
+    }
+
+    fn frame6(proto: u8, sport: u16, dport: u16, flags: u8, win: u16, payload: usize) -> Vec<u8> {
+        let mut f = vec![0u8; 12];
+        f.extend_from_slice(&[0x86, 0xDD]);
+        let l4len = if proto == 6 { 20 } else { 8 };
+        let plen = (l4len + payload) as u16;
+        f.extend_from_slice(&[0x60, 0, 0, 0, (plen >> 8) as u8, plen as u8, proto, 64]);
+        f.extend_from_slice(&"2001:db8::1".parse::<std::net::Ipv6Addr>().unwrap().octets());
+        f.extend_from_slice(&"2001:db8::2".parse::<std::net::Ipv6Addr>().unwrap().octets());
+        f.extend_from_slice(&sport.to_be_bytes());
+        f.extend_from_slice(&dport.to_be_bytes());
+        if proto == 6 {
+            f.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0x50, flags]);
+            f.extend_from_slice(&win.to_be_bytes());
+            f.extend_from_slice(&[0, 0, 0, 0]);
+        } else {
+            f.extend_from_slice(&((8 + payload) as u16).to_be_bytes());
+            f.extend_from_slice(&[0, 0]);
+        }
+        f.extend(std::iter::repeat(0xAB).take(payload));
+        f
+    }
+
+    #[test]
+    fn parses_ipv6_tcp_and_udp() {
+        let p = parse(&frame6(6, 50000, 443, 0x02, 64800, 0), 7).expect("IPv6 TCP should parse");
+        assert_eq!(p.src.to_string(), "2001:db8::1");
+        assert_eq!(p.dst.to_string(), "2001:db8::2");
+        assert_eq!((p.sport, p.dport, p.proto, p.flags, p.win, p.l4hdr), (50000, 443, 6, 0x02, 64800, 20));
+        assert_eq!(p.payload, 0); // 74-byte frame: no Ethernet padding, no data
+        let u = parse(&frame6(17, 5353, 53, 0, 0, 30), 0).expect("IPv6 UDP should parse");
+        assert_eq!((u.dport, u.proto, u.payload, u.l4hdr), (53, 17, 30, 8));
+        let mut bad = frame6(6, 1, 2, 0, 0, 0);
+        bad[14] = 0x45; // version nibble says IPv4
+        assert!(parse(&bad, 0).is_none());
+        let mut icmp6 = frame6(6, 1, 2, 0, 0, 0);
+        icmp6[14 + 6] = 58;
+        assert!(parse(&icmp6, 0).is_none());
     }
 
     #[test]
@@ -933,10 +983,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_ipv4_short_and_other_protocols() {
+    fn rejects_malformed_short_and_other_protocols() {
         let mut v6 = frame(6, [1, 1, 1, 1], [2, 2, 2, 2], 1, 2, 0, 0, 0);
-        v6[12] = 0x86; v6[13] = 0xDD; // IPv6 ethertype
+        v6[12] = 0x86; v6[13] = 0xDD; // IPv6 ethertype but an IPv4 header inside
         assert!(parse(&v6, 0).is_none());
+        let mut arp = frame(6, [1, 1, 1, 1], [2, 2, 2, 2], 1, 2, 0, 0, 0);
+        arp[12] = 0x08; arp[13] = 0x06;
+        assert!(parse(&arp, 0).is_none());
         assert!(parse(&[0u8; 10], 0).is_none());
         let icmp = frame(1, [1, 1, 1, 1], [2, 2, 2, 2], 0, 0, 0, 0, 8);
         assert!(parse(&icmp, 0).is_none());
