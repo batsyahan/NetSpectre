@@ -113,7 +113,7 @@ Measured numbers (latency, detection checks, deployment findings) are in [docs/R
 
 - ML call latency on a laptop: 2.0 ms mean for benign flows, 8.2 ms mean for attacks including explanations. The ARM64 image builds and serves under emulation; it has not yet been timed on real Raspberry Pi hardware.
 - Anomaly thresholds need calibration per network. On attack types never seen in training (leave-one-day-out, `docs/EVAL_LEAVE_DAY_OUT.txt`) the classifier alone catches few, and the autoencoder at 0.2369 adds most of the zero-day detection.
-- Only IPv4 TCP/UDP is analysed; IPv6 and QUIC-over-IPv6 traffic is ignored.
+- TCP and UDP over IPv4 and IPv6 are analysed (IPv6 extension headers are not followed; ICMP, ARP and VLAN-tagged frames are ignored). The models were trained on IPv4 flows from CICIDS2017, so detection on IPv6 traffic relies on the same flow statistics and has not been separately evaluated.
 - Capture needs a vantage point that actually sees the traffic (a gateway, access point or mirror port). A host on ordinary Wi-Fi, and WSL2, see only their own traffic.
 - TCP flag-count features were removed from the model because they are a dataset artifact in CICIDS2017.
 

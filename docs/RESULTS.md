@@ -84,4 +84,4 @@ Finding: the old autoencoder's DDoS "detection" at 0.2369 came with a quarter of
 
 Deployed after these tests: classifier `multiclass_xgb35_v3`, autoencoder `ae35_v2` at 0.645 (`docker-compose.yml`); `scripts/smoke_test.sh` passes 6/6.
 
-Limitations found: the monitor only analyses IPv4 TCP/UDP, so browser traffic over IPv6/QUIC is invisible; on WSL2 the monitor sees little of the Windows host's traffic.
+Limitations found: the monitor only analysed IPv4 TCP/UDP, so browser traffic over IPv6/QUIC was invisible (IPv6 support was added afterwards, see below); on WSL2 the monitor sees little of the Windows host's traffic.
