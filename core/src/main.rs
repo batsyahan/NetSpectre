@@ -266,6 +266,75 @@ fn alert_bus() -> &'static tokio::sync::broadcast::Sender<()> {
     ALERT_BUS.get_or_init(|| tokio::sync::broadcast::channel(16).0)
 }
 
+// ---- Live model statistics and recent non-benign predictions (dashboard: ML Advanced page) ----
+// Kept in memory only: they restart from zero when the monitor restarts.
+#[derive(Clone, serde::Serialize)]
+struct Prediction {
+    ts_utc: String,
+    src_ip: String,
+    src_port: u32,
+    dst_ip: String,
+    dst_port: u32,
+    protocol: u32,
+    model_label: String, // what the classifier said
+    label: String,       // after the anomaly check (BENIGN + high anomaly score -> "Anomaly (unknown)")
+    confidence: f32,
+    anomaly_score: f32,
+    counts_toward_alert: bool, // false when a rare class was below NS_RARE_MIN_CONF
+    latency_ms: f64,
+    flow_duration_us: f64,
+    fwd_packets: f64,
+    bwd_packets: f64,
+    fwd_bytes: f64,
+    bwd_bytes: f64,
+    reasons: serde_json::Value,
+}
+
+#[derive(Default)]
+struct MlStats {
+    classified: u64,
+    errors: u64,
+    invalid_input: u64,
+    latency_sum_ms: f64,
+    latency_max_ms: f64,
+    by_label: HashMap<String, u64>,
+    recent: std::collections::VecDeque<Prediction>,
+    since: String,
+}
+
+const RECENT_PREDICTIONS: usize = 300;
+static ML_STATS: std::sync::OnceLock<std::sync::Mutex<MlStats>> = std::sync::OnceLock::new();
+
+fn ml_stats() -> &'static std::sync::Mutex<MlStats> {
+    ML_STATS.get_or_init(|| std::sync::Mutex::new(MlStats { since: now_utc(), ..Default::default() }))
+}
+
+// Newest first, at most `cap` entries.
+fn push_recent(q: &mut std::collections::VecDeque<Prediction>, p: Prediction, cap: usize) {
+    q.push_front(p);
+    q.truncate(cap);
+}
+
+// Seconds since 1970 -> "YYYY-MM-DDTHH:MM:SSZ" (same format as the database timestamps).
+fn iso_utc(secs: u64) -> String {
+    let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
+    // civil-from-days (Howard Hinnant's algorithm)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
+}
+
+fn now_utc() -> String {
+    iso_utc(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0))
+}
+
 // Minimum confidence for rare, poorly-learned classes (override with NS_RARE_MIN_CONF).
 fn rare_min_conf() -> f32 {
     static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
@@ -411,12 +480,15 @@ fn open_db() -> rusqlite::Connection {
     let _ = db.pragma_update(None, "synchronous", "NORMAL");
     db.execute_batch(SCHEMA)
     .expect("create schema");
-    let has_col = db
-        .prepare("SELECT 1 FROM pragma_table_info('alerts') WHERE name = 'explanation'")
-        .and_then(|mut st| st.exists([]))
-        .unwrap_or(false);
-    if !has_col {
-        let _ = db.execute("ALTER TABLE alerts ADD COLUMN explanation TEXT", []);
+    // columns added after the first release
+    for (col, ty) in [("explanation", "TEXT"), ("dst_ip", "TEXT"), ("dst_count", "INTEGER")] {
+        let has_col = db
+            .prepare(&format!("SELECT 1 FROM pragma_table_info('alerts') WHERE name = '{col}'"))
+            .and_then(|mut st| st.exists([]))
+            .unwrap_or(false);
+        if !has_col {
+            let _ = db.execute(&format!("ALTER TABLE alerts ADD COLUMN {col} {ty}"), []);
+        }
     }
     use std::os::unix::fs::PermissionsExt;
     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)); // owner writes, others may only read
@@ -441,6 +513,8 @@ struct AlertRow {
     avg_confidence: f64,
     status: String,
     explanation: serde_json::Value,
+    dst_ip: Option<String>,   // most frequent destination among the grouped flows (older alerts: none)
+    dst_count: Option<i64>,   // number of different destinations among the grouped flows
 }
 
 async fn api_health() -> axum::Json<Health> {
@@ -462,7 +536,7 @@ async fn api_alerts(
     let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
     let db = rusqlite::Connection::open(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut stmt = db
-        .prepare("SELECT id, ts_utc, src_ip, label, flow_count, avg_confidence, status, explanation FROM alerts WHERE (?2 = '' OR src_ip = ?2) ORDER BY id DESC LIMIT ?1")
+        .prepare("SELECT id, ts_utc, src_ip, label, flow_count, avg_confidence, status, explanation, dst_ip, dst_count FROM alerts WHERE (?2 = '' OR src_ip = ?2) ORDER BY id DESC LIMIT ?1")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rows = stmt
         .query_map(rusqlite::params![limit, ip], |r| {
@@ -478,6 +552,8 @@ async fn api_alerts(
                     .get::<_, Option<String>>(7)?
                     .and_then(|t| serde_json::from_str(&t).ok())
                     .unwrap_or(serde_json::Value::Array(vec![])),
+                dst_ip: r.get(8)?,
+                dst_count: r.get(9)?,
             })
         })
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -540,10 +616,10 @@ async fn api_export() -> Result<impl axum::response::IntoResponse, axum::http::S
     let path = env::var("NS_DB").unwrap_or_else(|_| "../data/netspectre.db".to_string());
     let db = rusqlite::Connection::open(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut stmt = db
-        .prepare("SELECT id, ts_utc, src_ip, label, flow_count, avg_confidence, status, explanation FROM alerts ORDER BY id DESC")
+        .prepare("SELECT id, ts_utc, src_ip, label, flow_count, avg_confidence, status, explanation, dst_ip FROM alerts ORDER BY id DESC")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let esc = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
-    let mut out = String::from("id,time_utc,source_ip,attack,flows,confidence,status,reasons\n");
+    let mut out = String::from("id,time_utc,source_ip,destination_ip,attack,flows,confidence,status,reasons\n");
     let rows = stmt
         .query_map([], |r| {
             Ok((
@@ -555,18 +631,19 @@ async fn api_export() -> Result<impl axum::response::IntoResponse, axum::http::S
                 r.get::<_, f64>(5)?,
                 r.get::<_, String>(6)?,
                 r.get::<_, Option<String>>(7)?,
+                r.get::<_, Option<String>>(8)?,
             ))
         })
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     for row in rows {
-        let (id, ts, ip, label, n, conf, st, ex) = row.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let (id, ts, ip, label, n, conf, st, ex, dst) = row.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let reasons = ex
             .and_then(|e| serde_json::from_str::<Vec<serde_json::Value>>(&e).ok())
             .map(|v| v.iter().filter_map(|x| x["text"].as_str()).collect::<Vec<_>>().join("; "))
             .unwrap_or_default();
         out.push_str(&format!(
-            "{id},{},{},{},{n},{conf:.3},{},{}\n",
-            esc(&ts), esc(&ip), esc(&label), esc(&st), esc(&reasons)
+            "{id},{},{},{},{},{n},{conf:.3},{},{}\n",
+            esc(&ts), esc(&ip), esc(&dst.unwrap_or_default()), esc(&label), esc(&st), esc(&reasons)
         ));
     }
     Ok((
@@ -618,6 +695,33 @@ async fn require_token(
         return axum::http::StatusCode::UNAUTHORIZED.into_response();
     }
     next.run(req).await
+}
+
+// Live counters of the classifier, measured by the monitor since it started.
+async fn api_ml() -> axum::Json<serde_json::Value> {
+    let s = ml_stats().lock().unwrap();
+    let mut by: Vec<(&String, &u64)> = s.by_label.iter().collect();
+    by.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+    axum::Json(serde_json::json!({
+        "since": s.since,
+        "classified": s.classified,
+        "errors": s.errors,
+        "invalid_input": s.invalid_input,
+        "avg_latency_ms": if s.classified > 0 { s.latency_sum_ms / s.classified as f64 } else { 0.0 },
+        "max_latency_ms": s.latency_max_ms,
+        "by_label": by.into_iter().map(|(l, n)| serde_json::json!({"label": l, "count": n})).collect::<Vec<_>>(),
+        "flows_refused": FLOWS_REFUSED.load(std::sync::atomic::Ordering::Relaxed),
+        "flows_queue_dropped": FLOWS_QUEUE_DROPPED.load(std::sync::atomic::Ordering::Relaxed),
+    }))
+}
+
+// The most recent non-benign predictions (attacks and anomalies), newest first.
+async fn api_predictions(
+    axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
+) -> axum::Json<Vec<Prediction>> {
+    let limit: usize = q.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100).clamp(1, RECENT_PREDICTIONS);
+    let s = ml_stats().lock().unwrap();
+    axum::Json(s.recent.iter().take(limit).cloned().collect())
 }
 
 // Counts over ALL stored alerts (the alert list endpoint is capped), for the dashboard overview.
@@ -672,6 +776,8 @@ async fn run_api() {
         .route("/api/alerts/export", axum::routing::get(api_export))
         .route("/api/stream", axum::routing::get(api_stream))
         .route("/api/stats", axum::routing::get(api_stats))
+        .route("/api/ml", axum::routing::get(api_ml))
+        .route("/api/predictions", axum::routing::get(api_predictions))
         .layer(axum::middleware::from_fn(require_token))
         .layer(tower_http::cors::CorsLayer::permissive());
     let addr = env::var("NS_API_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
@@ -701,7 +807,7 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::Receiver<pb::FlowFe
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let mut hist: HashMap<(String, String), Vec<(Instant, u32, f32)>> = HashMap::new();
+    let mut hist: HashMap<(String, String), Vec<(Instant, u32, f32, String)>> = HashMap::new();
     let mut last_alert: HashMap<(String, String), Instant> = HashMap::new();
 
     let mut seen: u64 = 0;
@@ -721,13 +827,31 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::Receiver<pb::FlowFe
         ) {
             eprintln!("db error (devices): {e}");
         }
+        let (dst, sport, proto) = (req.dst_ip.clone(), req.src_port, req.protocol);
+        let feat = |i: usize| req.features.get(i).copied().unwrap_or(0.0) as f64;
+        // feature order: 1 Flow Duration, 2/3 fwd/bwd packets, 4/5 fwd/bwd payload bytes
+        let (dur, fwd_p, bwd_p, fwd_b, bwd_b) = (feat(1), feat(2), feat(3), feat(4), feat(5));
+        let t0 = Instant::now();
         let resp = match client.classify(req).await {
             Ok(r) => r.into_inner(),
             Err(e) => {
                 eprintln!("classify error: {e}");
+                let mut s = ml_stats().lock().unwrap();
+                s.errors += 1;
+                if e.code() == tonic::Code::InvalidArgument {
+                    s.invalid_input += 1;
+                }
                 continue;
             }
         };
+        let latency_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        {
+            let mut s = ml_stats().lock().unwrap();
+            s.classified += 1;
+            s.latency_sum_ms += latency_ms;
+            s.latency_max_ms = s.latency_max_ms.max(latency_ms);
+            *s.by_label.entry(resp.label.clone()).or_default() += 1;
+        }
         let mut label = resp.label.clone();
         let mut conf = resp.confidence;
         if label == "BENIGN" {
@@ -741,8 +865,50 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::Receiver<pb::FlowFe
                 continue;
             }
         }
+        let reasons = if label == "Anomaly (unknown)" {
+            serde_json::json!([{
+                "feature": "anomaly_score",
+                "text": format!(
+                    "unusual traffic pattern not matching known attacks (reconstruction error {:.2} vs threshold {:.2})",
+                    resp.anomaly_score, ae_thr
+                ),
+                "weight": 100.0
+            }])
+        } else {
+            serde_json::Value::Array(
+                resp.reasons
+                    .iter()
+                    .map(|r| serde_json::json!({"feature": r.feature, "text": r.text, "weight": r.weight}))
+                    .collect(),
+            )
+        };
         // Rare classes (few training flows) need stronger evidence before they may raise an alert.
-        if rare_class_blocked(&label, conf, rare_min_conf()) {
+        let blocked = rare_class_blocked(&label, conf, rare_min_conf());
+        push_recent(
+            &mut ml_stats().lock().unwrap().recent,
+            Prediction {
+                ts_utc: now_utc(),
+                src_ip: src.clone(),
+                src_port: sport,
+                dst_ip: dst.clone(),
+                dst_port: dport,
+                protocol: proto,
+                model_label: resp.label.clone(),
+                label: label.clone(),
+                confidence: conf,
+                anomaly_score: resp.anomaly_score,
+                counts_toward_alert: !blocked,
+                latency_ms,
+                flow_duration_us: dur,
+                fwd_packets: fwd_p,
+                bwd_packets: bwd_p,
+                fwd_bytes: fwd_b,
+                bwd_bytes: bwd_b,
+                reasons: reasons.clone(),
+            },
+            RECENT_PREDICTIONS,
+        );
+        if blocked {
             if verbose {
                 println!("skip  {src} -> port {dport}  {label} ({conf:.2}) below rare-class minimum");
             }
@@ -752,7 +918,7 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::Receiver<pb::FlowFe
         let now = Instant::now();
         let h = hist.entry(key.clone()).or_default();
         h.retain(|x| now.duration_since(x.0) <= Duration::from_secs(10));
-        h.push((now, dport, conf));
+        h.push((now, dport, conf, dst));
         let (count, unit, need) = if label == "PortScan" {
             (h.iter().map(|x| x.1).collect::<HashSet<_>>().len(), "ports", 10)
         } else {
@@ -763,30 +929,20 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::Receiver<pb::FlowFe
             last_alert.insert(key, now);
             let avg = h.iter().map(|x| x.2).sum::<f32>() / h.len() as f32;
             println!("ALERT {src} -> {}: {count} {unit} in 10s (avg confidence {avg:.2})", label);
-            let reasons_json = serde_json::to_string(
-                &resp
-                    .reasons
-                    .iter()
-                    .map(|r| serde_json::json!({"feature": r.feature, "text": r.text, "weight": r.weight}))
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap_or_default();
-            let reasons_json = if label == "Anomaly (unknown)" {
-                serde_json::json!([{
-                    "feature": "anomaly_score",
-                    "text": format!(
-                        "unusual traffic pattern not matching known attacks (reconstruction error {:.2} vs threshold {:.2})",
-                        resp.anomaly_score, ae_thr
-                    ),
-                    "weight": 100.0
-                }])
-                .to_string()
-            } else {
-                reasons_json
-            };
+            let reasons_json = reasons.to_string();
+            let mut per_dst: HashMap<&str, usize> = HashMap::new();
+            for x in h.iter() {
+                *per_dst.entry(x.3.as_str()).or_default() += 1;
+            }
+            let top_dst = per_dst
+                .iter()
+                .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(a.0)))
+                .map(|(d, _)| d.to_string())
+                .unwrap_or_default();
+            let dst_count = per_dst.len() as i64;
             if let Err(e) = db.execute(
-                "INSERT INTO alerts (src_ip, label, flow_count, avg_confidence, explanation) VALUES (?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params![src, label, count as i64, avg as f64, reasons_json],
+                "INSERT INTO alerts (src_ip, label, flow_count, avg_confidence, explanation, dst_ip, dst_count) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![src, label, count as i64, avg as f64, reasons_json, top_dst, dst_count],
             ) {
                 eprintln!("db error: {e}");
             } else {
@@ -1157,6 +1313,28 @@ mod tests {
         assert_eq!(feat(&f, "Init_Win_bytes_backward"), -1.0);
         assert_eq!(feat(&f, "Flow Packets/s"), 0.0); // zero duration must not divide by zero
         assert_eq!(feat(&f, "Total Backward Packets"), 0.0);
+    }
+
+    #[test]
+    fn utc_timestamps_are_formatted_like_the_database() {
+        assert_eq!(iso_utc(0), "1970-01-01T00:00:00Z");
+        assert_eq!(iso_utc(951_782_400), "2000-02-29T00:00:00Z"); // leap day
+        assert_eq!(iso_utc(1_792_000_000), "2026-10-14T17:46:40Z");
+    }
+
+    #[test]
+    fn recent_predictions_keep_the_newest_and_are_capped() {
+        let mk = |n: u32| Prediction {
+            ts_utc: String::new(), src_ip: format!("10.0.0.{n}"), src_port: n, dst_ip: String::new(), dst_port: 0,
+            protocol: 6, model_label: "PortScan".into(), label: "PortScan".into(), confidence: 1.0, anomaly_score: 0.0,
+            counts_toward_alert: true, latency_ms: 1.0, flow_duration_us: 0.0, fwd_packets: 1.0, bwd_packets: 1.0,
+            fwd_bytes: 0.0, bwd_bytes: 0.0, reasons: serde_json::Value::Null,
+        };
+        let mut q = std::collections::VecDeque::new();
+        for n in 1..=5 {
+            push_recent(&mut q, mk(n), 3);
+        }
+        assert_eq!(q.iter().map(|p| p.src_port).collect::<Vec<_>>(), vec![5, 4, 3]);
     }
 
     #[test]

@@ -63,6 +63,7 @@ def metrics(pred):
         "weighted_f1": f1_score(yt, pred, average="weighted", zero_division=0),
         "benign_fpr": float((pred[yt == "BENIGN"] != "BENIGN").mean()),
         "per_class": {c: {"precision": float(p[i]), "recall": float(r[i]), "f1": float(f[i]), "support": int(s[i])} for i, c in enumerate(classes)},
+        "confusion_matrix": confusion_matrix(yt, pred, labels=classes).tolist(),
     }
 
 specs = [
@@ -88,7 +89,6 @@ models.append({"name": "XGBoost v3 (deployed)", "file": f"{DEPLOYED}.onnx", "siz
 del P, ens; gc.collect()
 
 # ---------- deployed model: confusion matrix and global feature importance (mean |TreeSHAP|) ----------
-cm = confusion_matrix(yt, pred_dep, labels=classes).tolist()
 import xgboost as xgb
 booster = xgb.Booster(); booster.load_model(f"models/{DEPLOYED}.json")
 rng = np.random.default_rng(1); idx = rng.choice(len(Xt), 20_000, replace=False)
@@ -138,7 +138,8 @@ report = {
     "test_set": {"flows": int(len(yt)), "source": "CICIDS2017",
                  "split": "first 80% of each capture day and attack type for training, last 20% for testing"},
     "features": F, "classes": classes, "deployed_model": DEPLOYED,
-    "models": models, "confusion_matrix": cm, "feature_importance": importance,
+    "models": models, "feature_importance": importance,
+    "feature_importance_method": "mean |TreeSHAP| contribution to the predicted class, deployed model, 20,000 random test flows",
     "autoencoder": autoencoder, "leave_one_day_out": lodo,
     "leave_one_day_out_note": "From docs/EVAL_LEAVE_DAY_OUT.txt; classifier retrained per held-out day with the deployed recipe, autoencoder ae35 at 0.5 (the version deployed at that time).",
 }
