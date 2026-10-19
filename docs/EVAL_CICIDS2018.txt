@@ -1,0 +1,27 @@
+CSE-CIC-IDS2018 cross-dataset test: classifier multiclass_xgb35_v3, autoencoder ae35_v2 @ 0.645 (trained on CICIDS2017 only)
+files: 3 | flows evaluated: 1,200,138 (benign sampled at 5%, attacks capped at 300,000 per label)
+
+2018 label                 total in data  evaluated  any attack  right class  AE only   either
+Benign                         1,868,914     93,114        0.1%        99.9%     0.1%     0.2%
+Bot                              286,191    286,191       24.8%        24.8%     0.0%    24.9%
+DoS attacks-Hulk                 461,912    300,000       93.5%         0.2%     0.0%    93.5%
+DoS attacks-SlowHTTPTest         139,890    139,890      100.0%         0.0%     0.0%   100.0%
+FTP-BruteForce                   193,354    193,354      100.0%         0.0%     0.0%   100.0%
+SSH-Bruteforce                   187,589    187,589        0.1%         0.0%     0.0%     0.1%
+ALL ATTACKS                               1,107,024       61.9%                  0.0%    61.9%
+
+Benign row: false-positive rates. Attack rows: detection rates. 'any attack' = classifier gave any attack label;
+'right class' = it gave the matching CICIDS2017 class; 'AE only' = classifier said BENIGN but the autoencoder flagged it;
+'either' = what NetSpectre would flag. Unknown labels (not in the mapping) are shown with n/a.
+
+Most frequent wrong labels for attack flows:
+  DoS attacks-Hulk           -> DoS GoldenEye                279,911
+  Bot                        -> BENIGN                       215,084
+  FTP-BruteForce             -> PortScan                     193,354
+  SSH-Bruteforce             -> BENIGN                       187,461
+  DoS attacks-SlowHTTPTest   -> PortScan                     139,890
+  DoS attacks-Hulk           -> BENIGN                        19,544
+  DoS attacks-Hulk           -> Web Attack - Brute Force          50
+  SSH-Bruteforce             -> PortScan                          30
+  SSH-Bruteforce             -> Web Attack - Brute Force          24
+  SSH-Bruteforce             -> Web Attack - Sql Injection        20
