@@ -1,0 +1,72 @@
+NetSpectre classifier v8: CICIDS2017 + CSE-CIC-IDS2018 (7 days) + own-network normal traffic; config A chosen on validation in v7, refit on train+validation
+2018 data: 7 day files; per label in time order first 70% train, last 30% test. v6 never saw 15-02, 21-02, 22-02, 23-02.
+
+CSE-CIC-IDS2018 test flows: % flagged as an attack (Benign row = false alarms)
+2018 label                 test flows        v3        v6        v7        v8
+Benign                        100,000      0.1%      0.0%      0.0%      0.0%
+Bot                            85,858     25.6%    100.0%    100.0%    100.0%
+Brute Force -Web                  184      0.0%      1.6%     61.4%     62.0%
+Brute Force -XSS                   69     39.1%      0.0%     89.9%     92.8%
+DDOS attack-HOIC              100,000      0.0%      0.0%    100.0%    100.0%
+DDOS attack-LOIC-UDP              519      0.0%      0.0%    100.0%    100.0%
+DoS attacks-GoldenEye          12,453     38.1%     70.8%    100.0%    100.0%
+DoS attacks-Hulk              100,000     98.3%    100.0%    100.0%    100.0%
+DoS attacks-SlowHTTPTest       41,967    100.0%    100.0%    100.0%    100.0%
+DoS attacks-Slowloris           3,298     93.8%     89.1%     94.7%     95.6%
+FTP-BruteForce                 58,007    100.0%    100.0%    100.0%    100.0%
+SQL Injection                      27      3.7%      3.7%     88.9%     88.9%
+SSH-Bruteforce                 56,277      0.0%    100.0%    100.0%    100.0%
+ALL ATTACKS                   458,659     49.8%     77.2%     99.9%     99.9%
+
+Same flows: % given the correct attack family
+2018 label                                   v3        v6        v7        v8
+Bot                                       25.6%    100.0%    100.0%    100.0%
+Brute Force -Web                           0.0%      0.0%     60.3%     62.0%
+Brute Force -XSS                          39.1%      0.0%     82.6%     91.3%
+DDOS attack-HOIC                           0.0%      0.0%    100.0%    100.0%
+DDOS attack-LOIC-UDP                       0.0%      0.0%    100.0%    100.0%
+DoS attacks-GoldenEye                     34.8%     11.7%    100.0%    100.0%
+DoS attacks-Hulk                           0.2%    100.0%    100.0%    100.0%
+DoS attacks-SlowHTTPTest                   0.0%     54.1%     96.2%     53.9%
+DoS attacks-Slowloris                     90.9%     80.7%     89.1%     91.3%
+FTP-BruteForce                             0.0%     86.2%     42.7%     86.3%
+SQL Injection                              3.7%      0.0%     70.4%     74.1%
+SSH-Bruteforce                             0.0%    100.0%    100.0%    100.0%
+ALL ATTACKS                                6.4%     69.5%     92.3%     94.0%
+
+CICIDS2017 test set (499,605 flows)                   v3        v6        v7        v8
+  macro F1                                        0.8498    0.8622    0.8438    0.8446
+  attack detection                                99.62%    99.51%    99.57%    99.60%
+  benign false alarms                             0.131%    0.116%    0.131%    0.118%
+  F1 per class:
+    BENIGN                                         0.999     0.999     0.999     0.999   (414,453 flows)
+    Bot                                            0.691     0.662     0.652     0.699   (390 flows)
+    DDoS                                           0.999     0.999     0.999     0.999   (25,603 flows)
+    DoS GoldenEye                                  0.965     0.965     0.965     0.964   (2,057 flows)
+    DoS Hulk                                       0.977     0.978     0.976     0.978   (34,570 flows)
+    DoS Slowhttptest                               0.882     0.858     0.887     0.877   (1,046 flows)
+    DoS slowloris                                  0.871     0.865     0.878     0.861   (1,075 flows)
+    FTP-Patator                                    0.990     0.992     0.991     0.996   (1,187 flows)
+    Heartbleed                                     1.000     0.800     0.800     0.800   (3 flows)
+    Infiltration                                   0.727     0.941     1.000     0.889   (8 flows)
+    PortScan                                       0.971     0.971     0.970     0.973   (18,139 flows)
+    SSH-Patator                                    0.998     0.985     0.990     0.985   (644 flows)
+    Web Attack - Brute Force                       0.606     0.698     0.620     0.631   (294 flows)
+    Web Attack - Sql Injection                     0.714     0.833     0.615     0.727   (5 flows)
+    Web Attack - XSS                               0.357     0.386     0.314     0.290   (131 flows)
+
+Own network (held out)                                v3        v6        v7        v8
+  scans called PortScan (of 629)                     629       629       628       628
+  normal flows called BENIGN (of 100)                100       100       100        76
+  normal capture called BENIGN (of 380)              379       380       380       380
+  independent scan flows PortScan (of 61)             55        55        55        57
+
+  one flow, ms on this machine                     0.023     0.065     0.034     0.040
+
+Deploy check for v8:
+  [FAIL] no extra home false alarms vs v3
+  [FAIL] 2017 macro F1 not lower than v6 by >0.005
+  [PASS] 2017 benign false alarms <= 0.15%
+  [PASS] home scans called PortScan >= 99% (an alert needs 10 probes, so one missed probe changes nothing)
+  [PASS] one flow <= 3x v3 time
+  => do not deploy v8 as is (see FAIL lines)

@@ -1,0 +1,23 @@
+NetSpectre classifier v5: trained on CICIDS2017 + CSE-CIC-IDS2018 (v3 = CICIDS2017 only, deployed before)
+2018 data: 3 day files; per label, first 70% in time for training (max 60,000 rows), last 30% held out for testing
+
+CSE-CIC-IDS2018 held-out flows (later in time than anything trained on)
+2018 label                 test flows  v3 flagged  v5 flagged  v3 right  v5 right
+Benign                         55,919        0.0%        0.0%    100.0%    100.0%
+Bot                            85,858       25.6%      100.0%     25.6%    100.0%
+DoS attacks-Hulk              100,000       98.4%      100.0%      0.2%    100.0%
+DoS attacks-SlowHTTPTest       41,967      100.0%      100.0%      0.0%     52.6%
+FTP-BruteForce                 58,007      100.0%      100.0%      0.0%     88.1%
+SSH-Bruteforce                 56,277        0.0%      100.0%      0.0%    100.0%
+ALL ATTACKS                   342,109       64.4%      100.0%      6.5%     92.2%
+Benign row = false alarms (lower is better); attack rows = detection. 'right' = correct attack family.
+
+CICIDS2017 test set (499,605 flows, unchanged)
+  macro F1            v3 0.8498   v5 0.8585
+  attack detection    v3 99.62%  v5 99.57%
+  benign false alarms v3 0.131%  v5 0.122%
+
+Own-network live captures (held out)
+  scans called PortScan        v3 629/629   v5 629/629
+  normal flows called BENIGN   v3 100/100   v5 76/100
+  independent scan flows       v3 55/61   v5 57/61
