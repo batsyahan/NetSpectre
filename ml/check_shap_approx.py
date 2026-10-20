@@ -8,7 +8,8 @@ MODEL = os.environ.get("NS_MODEL", "multiclass_xgb35_v7")
 F = json.load(open("models/feature_cols_35.json")); C = json.load(open("models/classes.json"))
 b = xgb.Booster(); b.load_model(f"models/{MODEL}.json")
 te = pd.read_parquet("data/processed/test_temporal2.parquet", columns=F + ["Label"])
-att = te[te["Label"] != "BENIGN"].groupby("Label", group_keys=False).apply(lambda d: d.sample(min(len(d), 40), random_state=1))
+att = te[te["Label"] != "BENIGN"]
+att = pd.concat([d.sample(min(len(d), 40), random_state=1) for _, d in att.groupby("Label")])
 X = att[F].to_numpy("float32")
 k = b.predict(xgb.DMatrix(X)).argmax(1)
 same3 = same1 = 0; t = {True: [], False: []}
