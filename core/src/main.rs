@@ -414,6 +414,43 @@ fn notify_phone(src: &str, label: &str, count: usize, unit: &str, avg: f32) {
     });
 }
 
+// ---- Optional Slack alerts via an incoming webhook (off unless NS_SLACK_WEBHOOK is set) ----
+// Builds the Slack message body; separate from the sender so it can be unit-tested.
+fn slack_payload(src: &str, dst: &str, label: &str, count: usize, unit: &str, avg: f32, reason: &str) -> String {
+    let rank = severity_rank(label, avg);
+    let mut text = format!(
+        "*NetSpectre alert: {label}* ({sev})\nSource: `{src}`{to}\n{count} {unit} in 10 s, average confidence {pct:.0}%",
+        sev = severity_name(rank),
+        to = if dst.is_empty() { String::new() } else { format!(" -> `{dst}`") },
+        pct = avg * 100.0
+    );
+    if !reason.is_empty() {
+        text.push_str(&format!("\nWhy: {reason}"));
+    }
+    serde_json::json!({ "text": text }).to_string()
+}
+
+fn notify_slack(src: &str, dst: &str, label: &str, count: usize, unit: &str, avg: f32, reason: &str) {
+    let url = match env::var("NS_SLACK_WEBHOOK") {
+        Ok(u) if u.trim().starts_with("https://hooks.slack.com/") => u.trim().to_string(),
+        _ => return,
+    };
+    let min = parse_min_severity(&env::var("NS_SLACK_MIN_SEVERITY").unwrap_or_default());
+    if severity_rank(label, avg) < min {
+        return;
+    }
+    let body = slack_payload(src, dst, label, count, unit, avg, reason);
+    // Separate thread so a slow network never delays flow processing.
+    std::thread::spawn(move || {
+        let res = ureq::post(url.as_str())
+            .header("Content-Type", "application/json")
+            .send(body.as_str());
+        if let Err(e) = res {
+            eprintln!("slack error: {e}");
+        }
+    });
+}
+
 fn emit(f: &Flow) {
     let (s, d) = (f.src.unwrap(), f.dst.unwrap());
     let req = pb::FlowFeatures {
@@ -1040,6 +1077,14 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::Receiver<pb::FlowFe
             } else {
                 let _ = alert_bus().send(());
                 notify_phone(&src, &label, count, unit, avg);
+                let first_reason = reasons
+                    .as_array()
+                    .and_then(|a| a.first())
+                    .and_then(|r| r.get("text"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                notify_slack(&src, &top_dst, &label, count, unit, avg, &first_reason);
             }
         }
     }
@@ -1204,6 +1249,16 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn slack_message_has_label_source_and_reason() {
+        let body = slack_payload("192.168.1.5", "192.168.1.1", "PortScan", 10, "ports", 0.86, "destination port 22");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let t = v["text"].as_str().unwrap();
+        assert!(t.contains("PortScan") && t.contains("192.168.1.5") && t.contains("-> `192.168.1.1`"));
+        assert!(t.contains("10 ports") && t.contains("86%") && t.contains("Why: destination port 22"));
+        assert!(t.contains("(medium)"));
+    }
+
     use super::*;
     use std::net::Ipv4Addr;
 

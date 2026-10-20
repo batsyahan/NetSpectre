@@ -61,6 +61,8 @@ Settings are environment variables. Put secrets in the git-ignored `.env`; `dock
 | `NS_NTFY_TOPIC` | empty (off) | Enables phone notifications through [ntfy](https://ntfy.sh). Use a long random topic name and treat it like a password. |
 | `NS_NTFY_MIN_SEVERITY` | `medium` | Lowest severity that sends a phone notification: `low`, `medium`, `high` or `critical`. |
 | `NS_NTFY_SERVER` | `https://ntfy.sh` | ntfy server; point this at your own server to keep alerts off third-party infrastructure. |
+| `NS_SLACK_WEBHOOK` | empty (off) | Slack incoming webhook (`https://hooks.slack.com/services/...`). Each alert is posted to the channel with severity, source, destination, flow count, confidence and the top reason. Keep it secret: anyone with the URL can post to the channel. |
+| `NS_SLACK_MIN_SEVERITY` | `medium` | Lowest severity posted to Slack: `low`, `medium`, `high` or `critical`. |
 
 Phone notifications send only the attack type, severity, source IP, flow count and confidence. The ntfy server operator can see that text, so self-host ntfy if that matters for your network.
 

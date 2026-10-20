@@ -24,6 +24,8 @@ services:
       NS_API_TOKEN: ${NS_API_TOKEN:-}
       NS_NTFY_TOPIC: ${NS_NTFY_TOPIC:-}
       NS_NTFY_MIN_SEVERITY: ${NS_NTFY_MIN_SEVERITY:-medium}
+      NS_SLACK_WEBHOOK: ${NS_SLACK_WEBHOOK:-}          # Slack incoming webhook URL (keep secret, set in .env)
+      NS_SLACK_MIN_SEVERITY: ${NS_SLACK_MIN_SEVERITY:-medium}
       NS_ANOMALY_IGNORE: 10.255.255.254   # trusted sources (comma-separated), e.g. your router's DNS
       NS_GEOIP_DB: /geo/dbip-country-lite.mmdb
       NS_MAX_FLOWS: ${NS_MAX_FLOWS:-100000}        # flood protection: flows tracked at once
