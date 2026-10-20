@@ -141,6 +141,8 @@ export function MlAdvancedPage() {
         <LivePanel stats={stats} failed={failed} />
         <GeneralisationPanel report={report} />
       </div>
+
+      <Cic2018Panel report={report} />
     </>
   );
 }
@@ -196,8 +198,9 @@ function ComparisonPanel({ report }: { report: ModelReport | null }) {
       </div>
       <p className="fine">
         All models scored on the same {report.test_set.flows.toLocaleString("en-IN")}-flow {report.test_set.source} test set ({report.test_set.split}) with the
-        same {report.features.length} features. Random Forest, CatBoost and XGBoost were trained on identical data; the deployed XGBoost v3 also saw live flows
-        from this monitor. Best value per row in bold. Inference measured as one ONNX call per flow on the machine that built the report.
+        same {report.features.length} features. Random Forest, CatBoost and XGBoost were trained on identical data; XGBoost v3 also saw live flows from this
+        monitor{deployedModel(ms) && !deployedModel(ms)!.name.includes("v3") ? `, and the deployed ${deployedModel(ms)!.name.replace(" (deployed)", "")} was trained on ${deployedModel(ms)!.trained_on}` : ""}.
+        Hover a column name for its settings. Best value per row in bold. Inference measured as one ONNX call per flow on the machine that built the report.
       </p>
     </Panel>
   );
@@ -662,6 +665,86 @@ function GeneralisationPanel({ report }: { report: ModelReport | null }) {
       <p className="fine">
         {report.leave_one_day_out_note ?? ""} Report generated {fmtTime(report.generated_at)}.
       </p>
+    </Panel>
+  );
+}
+
+// ---------- CSE-CIC-IDS2018: a different network, recorded a year later ----------
+function Cic2018Panel({ report }: { report: ModelReport | null }) {
+  if (!report) return <Panel title="Different network: CSE-CIC-IDS2018"><Loading what="evaluation report" /></Panel>;
+  const c = report.cicids2018;
+  if (!c) {
+    return (
+      <Panel title="Different network: CSE-CIC-IDS2018">
+        <p className="empty">docs/EVAL_V8.txt was not found when the report was built.</p>
+      </Panel>
+    );
+  }
+  const dep = report.deployed_model.split("_").pop() ?? "";
+  const cols = ["v3", dep].filter((v, i, a) => v && a.indexOf(v) === i && c.models.includes(v));
+  const cell = (m?: Record<string, number>, k?: string) => (m && k && m[k] !== undefined ? pct(m[k], 1) : "--");
+  return (
+    <Panel title="Different network: CSE-CIC-IDS2018">
+      <div className="table-scroll">
+        <table className="data compact">
+          <thead>
+            <tr>
+              <th scope="col">2018 attack</th>
+              <th scope="col" className="num">Test flows</th>
+              {cols.map((k) => (
+                <th key={`c${k}`} scope="col" className={k === dep ? "num col-deployed" : "num"}>
+                  Caught, {k}
+                  {k === dep ? " (deployed)" : ""}
+                </th>
+              ))}
+              {cols.map((k) => (
+                <th key={`r${k}`} scope="col" className={k === dep ? "num col-deployed" : "num"}>
+                  Right type, {k}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {c.attacks.map((a) => (
+              <tr key={a.label}>
+                <td>{a.label}</td>
+                <td className="num">{a.flows?.toLocaleString("en-IN") ?? "--"}</td>
+                {cols.map((k) => (
+                  <td key={`c${k}`} className={k === dep ? "num col-deployed" : "num"}>{cell(a.caught, k)}</td>
+                ))}
+                {cols.map((k) => (
+                  <td key={`r${k}`} className={k === dep ? "num col-deployed" : "num"}>{cell(a.right, k)}</td>
+                ))}
+              </tr>
+            ))}
+            {c.all_attacks && (
+              <tr className="row-key">
+                <th scope="row">All attacks</th>
+                <td className="num">{c.all_attacks.flows?.toLocaleString("en-IN") ?? "--"}</td>
+                {cols.map((k) => (
+                  <td key={`c${k}`} className={k === dep ? "num col-deployed" : "num"}>{cell(c.all_attacks!.caught, k)}</td>
+                ))}
+                {cols.map((k) => (
+                  <td key={`r${k}`} className={k === dep ? "num col-deployed" : "num"}>{cell(c.all_attacks!.right, k)}</td>
+                ))}
+              </tr>
+            )}
+            {c.benign && (
+              <tr>
+                <th scope="row">Normal traffic flagged (false alarms)</th>
+                <td className="num">{c.benign.flows?.toLocaleString("en-IN") ?? "--"}</td>
+                {cols.map((k) => (
+                  <td key={`c${k}`} className={k === dep ? "num col-deployed" : "num"}>{cell(c.benign!.caught, k)}</td>
+                ))}
+                {cols.map((k) => (
+                  <td key={`r${k}`} className={k === dep ? "num col-deployed" : "num"} />
+                ))}
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <p className="fine">{c.note}</p>
     </Panel>
   );
 }

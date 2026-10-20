@@ -173,6 +173,22 @@ export interface ModelReport {
   };
   leave_one_day_out: { day: string; attacks: LodoRow[]; benign_fpr?: LodoRow; all_attacks?: LodoRow }[];
   leave_one_day_out_note?: string;
+  cicids2018?: Cic2018 | null;
+}
+
+// CSE-CIC-IDS2018 results per model version (values are fractions 0..1), from docs/EVAL_V8.txt.
+export interface Cic2018Row {
+  label: string;
+  flows?: number;
+  caught?: Record<string, number>;
+  right?: Record<string, number>;
+}
+export interface Cic2018 {
+  models: string[];
+  benign?: Cic2018Row;
+  all_attacks?: Cic2018Row;
+  attacks: Cic2018Row[];
+  note: string;
 }
 
 export const fetchMlStats = (): Promise<MlStats> => getJson<MlStats>("/api/ml");

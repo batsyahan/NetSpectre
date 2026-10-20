@@ -4,8 +4,10 @@ Run from ml/ inside the .venv (about 5-10 minutes; trains the Random Forest once
     python export_model_report.py
 Compared on the same 499,605-flow CICIDS2017 test split and the same 35 features:
   Random Forest, CatBoost and XGBoost trained on the same CICIDS2017 training data (50k cap per class,
-  small attack classes oversampled to 20k), the XGBoost+CatBoost ensemble, and the deployed XGBoost v3
-  (the same XGBoost recipe plus live flows from the monitor).
+  small attack classes oversampled to 20k), the XGBoost+CatBoost ensemble, the previous XGBoost v3
+  (that recipe plus live flows from the monitor) and the deployed model (NS_MODEL, default v7:
+  CICIDS2017 + 7 days of CSE-CIC-IDS2018 + own-network normal traffic).
+CSE-CIC-IDS2018 results are read from docs/EVAL_V8.txt (written by retrain_xgb35_v8.py).
 """
 import gc, json, os, re, time
 from datetime import datetime, timezone
@@ -13,7 +15,7 @@ import numpy as np, pandas as pd, onnxruntime as ort
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_recall_fscore_support
 
 F = json.load(open("models/feature_cols_35.json")); classes = json.load(open("models/classes.json"))
-DEPLOYED = os.environ.get("NS_MODEL", "multiclass_xgb35_v3"); AE = os.environ.get("NS_AE_MODEL", "ae35_v2")
+DEPLOYED = os.environ.get("NS_MODEL", "multiclass_xgb35_v7"); AE = os.environ.get("NS_AE_MODEL", "ae35_v2")
 OUT = "../dashboard/public/model_report.json"
 
 # ---------- Random Forest on the same data and features (trained once, then cached) ----------
@@ -82,10 +84,25 @@ ens = (P["XGBoost"] + P["CatBoost"]) / 2
 models.append({"name": "XGBoost + CatBoost ensemble", "file": "average of the two", "size_bytes": models[1]["size_bytes"] + models[2]["size_bytes"],
                "params": "average of the two probability outputs (NS_ENSEMBLE=1)", "trained_on": "CICIDS2017",
                "latency_ms": models[1]["latency_ms"] + models[2]["latency_ms"], "deployed": False, **metrics(labs[ens.argmax(1)])})
+# description of each XGBoost version that can be deployed
+VERSIONS = {
+    "multiclass_xgb35_v3": ("100 trees per class, depth 6, learning rate 0.2, plus 2,486 live flows from the monitor (weight 10)",
+                            "CICIDS2017 + own live flows"),
+    "multiclass_xgb35_v6": ("150 trees per class, depth 8, learning rate 0.2", "CICIDS2017 + CIC-IDS2018 (3 days) + own normal traffic"),
+    "multiclass_xgb35_v7": ("150 trees per class, depth 8, learning rate 0.2 (chosen on a validation split)",
+                            "CICIDS2017 + CIC-IDS2018 (7 days) + own normal traffic"),
+}
+VER = lambda f: f.rsplit("_", 1)[-1]                      # multiclass_xgb35_v7 -> v7
+if DEPLOYED != "multiclass_xgb35_v3":
+    s3 = ort.InferenceSession("models/multiclass_xgb35_v3.onnx")
+    models.append({"name": "XGBoost v3 (previous)", "file": "multiclass_xgb35_v3.onnx", "size_bytes": os.path.getsize("models/multiclass_xgb35_v3.onnx"),
+                   "params": VERSIONS["multiclass_xgb35_v3"][0], "trained_on": VERSIONS["multiclass_xgb35_v3"][1],
+                   "latency_ms": latency_ms(s3), "deployed": False, **metrics(labs[probs(s3, Xt).argmax(1)])})
+    del s3
 sd = ort.InferenceSession(f"models/{DEPLOYED}.onnx"); pd_ = probs(sd, Xt); pred_dep = labs[pd_.argmax(1)]
-models.append({"name": "XGBoost v3 (deployed)", "file": f"{DEPLOYED}.onnx", "size_bytes": os.path.getsize(f"models/{DEPLOYED}.onnx"),
-               "params": "same as XGBoost, plus 2,486 live flows from the monitor (weight 10)", "trained_on": "CICIDS2017 + own live flows",
-               "latency_ms": latency_ms(sd), "deployed": True, **metrics(pred_dep)})
+params, data = VERSIONS.get(DEPLOYED, ("XGBoost", "see training script"))
+models.append({"name": f"XGBoost {VER(DEPLOYED)} (deployed)", "file": f"{DEPLOYED}.onnx", "size_bytes": os.path.getsize(f"models/{DEPLOYED}.onnx"),
+               "params": params, "trained_on": data, "latency_ms": latency_ms(sd), "deployed": True, **metrics(pred_dep)})
 del P, ens; gc.collect()
 
 # ---------- deployed model: confusion matrix and global feature importance (mean |TreeSHAP|) ----------
@@ -133,6 +150,31 @@ if os.path.exists(path):
             elif parts[0].startswith("ALL ATTACKS"): day["all_attacks"] = row
             else: day["attacks"].append(row)
 
+# ---------- CSE-CIC-IDS2018 (different network, one year later), from docs/EVAL_V8.txt ----------
+cic18 = None
+path = "../docs/EVAL_V8.txt"
+if os.path.exists(path):
+    cols, rows, section = [], {}, None
+    for line in open(path):
+        line = line.rstrip("\n")
+        if line.startswith("CSE-CIC-IDS2018 test flows"): section = "caught"; continue
+        if line.startswith("Same flows"): section = "right"; continue
+        if line.startswith("Benign row") or line.startswith("CICIDS2017 test set"): section = None if line.startswith("CICIDS2017") else section; continue
+        if section and line.startswith("2018 label"):
+            cols = line.split()[4:] if section == "caught" else line.split()[2:]; continue
+        if not section or not line.strip(): continue
+        mt = re.match(r"^(.+?)\s{2,}(?:([\d,]+)\s+)?((?:[\d.]+%\s*)+)$", line)
+        if not mt: continue
+        label, n, vals = mt.group(1).strip(), mt.group(2), [float(v) / 100 for v in re.findall(r"([\d.]+)%", mt.group(3))]
+        row = rows.setdefault(label, {"label": label})
+        if n: row["flows"] = int(n.replace(",", ""))
+        row[section] = dict(zip(cols, vals))
+    order = [k for k in rows if k not in ("Benign", "ALL ATTACKS")]
+    cic18 = {"models": cols, "benign": rows.get("Benign"), "all_attacks": rows.get("ALL ATTACKS"),
+             "attacks": [rows[k] for k in order],
+             "note": "CSE-CIC-IDS2018 (recorded a year later on a different network). For every label the latest 30% of flows in time are the test set; "
+                     "v3 was trained on CICIDS2017 only, v6 never saw the days 15-02, 21-02, 22-02 and 23-02."}
+
 report = {
     "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "test_set": {"flows": int(len(yt)), "source": "CICIDS2017",
@@ -140,7 +182,7 @@ report = {
     "features": F, "classes": classes, "deployed_model": DEPLOYED,
     "models": models, "feature_importance": importance,
     "feature_importance_method": "mean |TreeSHAP| contribution to the predicted class, deployed model, 20,000 random test flows",
-    "autoencoder": autoencoder, "leave_one_day_out": lodo,
+    "autoencoder": autoencoder, "leave_one_day_out": lodo, "cicids2018": cic18,
     "leave_one_day_out_note": "From docs/EVAL_LEAVE_DAY_OUT.txt; classifier retrained per held-out day with the deployed recipe, autoencoder ae35 at 0.5 (the version deployed at that time).",
 }
 open(OUT, "w").write(json.dumps(report, indent=1))
