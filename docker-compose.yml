@@ -7,6 +7,7 @@ services:
     environment:
       NS_MODEL: ${NS_MODEL:-multiclass_xgb35_v7}      # v4 (own-network retrain) tested worse on CICIDS and no better live
       NS_AE_MODEL: ${NS_AE_MODEL:-ae35_v2}            # autoencoder trained on CICIDS + own-network normal traffic
+      NS_SHAP_APPROX: ${NS_SHAP_APPROX:-0}          # 1 = fast approximate reasons (for a Raspberry Pi)
     restart: unless-stopped
 
   monitor:

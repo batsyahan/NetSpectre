@@ -1,5 +1,9 @@
+import os
 import numpy as np
 import xgboost as xgb
+
+# NS_SHAP_APPROX=1: per-path (Saabas) contributions instead of exact TreeSHAP; much faster on a Pi, usually same top-3.
+APPROX = os.environ.get("NS_SHAP_APPROX", "0") == "1"
 
 TEXT = {
     "Destination Port": "destination port {v:.0f}",
@@ -40,9 +44,10 @@ TEXT = {
 }
 
 
-def explain(booster, x, k, features, top=3):
+def explain(booster, x, k, features, top=3, approx=None):
     """Top contributing features for class k, as (feature, plain text, share in %)."""
-    c = booster.predict(xgb.DMatrix(x), pred_contribs=True)[0][k][:-1]
+    approx = APPROX if approx is None else approx
+    c = booster.predict(xgb.DMatrix(x), pred_contribs=True, approx_contribs=approx)[0][k][:-1]
     order = [i for i in np.argsort(-c) if c[i] > 0][:top]
     total = float(sum(c[i] for i in order)) or 1.0
     out = []
