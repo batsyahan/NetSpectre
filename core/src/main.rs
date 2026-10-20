@@ -451,6 +451,80 @@ fn notify_slack(src: &str, dst: &str, label: &str, count: usize, unit: &str, avg
     });
 }
 
+// ---- Optional email alerts over SMTP (off unless NS_SMTP_USER and NS_SMTP_PASS are set) ----
+// Subject and body of an alert email; separate from the sender so it can be unit-tested.
+fn email_text(src: &str, dst: &str, label: &str, count: usize, unit: &str, avg: f32, reason: &str, when: &str) -> (String, String) {
+    let sev = severity_name(severity_rank(label, avg));
+    let subject = format!("NetSpectre alert: {label} ({sev}) from {src}");
+    let mut body = format!(
+        "NetSpectre raised an alert.\n\nAttack type: {label}\nSeverity: {sev}\nSource: {src}\nDestination: {}\nActivity: {count} {unit} in 10 s\nAverage confidence: {:.0}%\nTime (UTC): {when}\n",
+        if dst.is_empty() { "unknown" } else { dst },
+        avg * 100.0
+    );
+    if !reason.is_empty() {
+        body.push_str(&format!("Main reason: {reason}\n"));
+    }
+    body.push_str("\nOpen the NetSpectre dashboard to acknowledge or dismiss this alert.\n");
+    (subject, body)
+}
+
+// At most `max` emails in any rolling hour, so an attack burst cannot flood the inbox.
+fn email_allowed(sent: &mut std::collections::VecDeque<Instant>, now: Instant, max: usize) -> bool {
+    while sent.front().is_some_and(|t| now.duration_since(*t) > Duration::from_secs(3600)) {
+        sent.pop_front();
+    }
+    if sent.len() >= max {
+        return false;
+    }
+    sent.push_back(now);
+    true
+}
+
+fn notify_email(src: &str, dst: &str, label: &str, count: usize, unit: &str, avg: f32, reason: &str) {
+    let (user, pass) = match (env::var("NS_SMTP_USER"), env::var("NS_SMTP_PASS")) {
+        (Ok(u), Ok(p)) if !u.trim().is_empty() && !p.trim().is_empty() => (u.trim().to_string(), p.replace(' ', "")),
+        _ => return,
+    };
+    let min = parse_min_severity(&env::var("NS_EMAIL_MIN_SEVERITY").unwrap_or_default());
+    if severity_rank(label, avg) < min {
+        return;
+    }
+    static SENT: std::sync::OnceLock<std::sync::Mutex<std::collections::VecDeque<Instant>>> = std::sync::OnceLock::new();
+    let max: usize = env::var("NS_EMAIL_MAX_PER_HOUR").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
+    if !email_allowed(&mut SENT.get_or_init(Default::default).lock().unwrap(), Instant::now(), max) {
+        eprintln!("email skipped: more than {max} alert emails in the last hour");
+        return;
+    }
+    let host = env::var("NS_SMTP_HOST").unwrap_or_else(|_| "smtp.gmail.com".to_string());
+    let to = env::var("NS_EMAIL_TO").ok().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| user.clone());
+    let (subject, body) = email_text(src, dst, label, count, unit, avg, reason, &now_utc());
+    std::thread::spawn(move || {
+        use lettre::{Message, SmtpTransport, Transport, message::header::ContentType, transport::smtp::authentication::Credentials};
+        let msg = match (user.parse(), to.trim().parse()) {
+            (Ok(from), Ok(rcpt)) => Message::builder().from(from).to(rcpt).subject(subject).header(ContentType::TEXT_PLAIN).body(body),
+            _ => {
+                eprintln!("email error: NS_SMTP_USER or NS_EMAIL_TO is not a valid address");
+                return;
+            }
+        };
+        let msg = match msg {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("email error: {e}");
+                return;
+            }
+        };
+        match SmtpTransport::relay(&host) {
+            Ok(b) => {
+                if let Err(e) = b.credentials(Credentials::new(user, pass)).build().send(&msg) {
+                    eprintln!("email error: {e}");
+                }
+            }
+            Err(e) => eprintln!("email error: {e}"),
+        }
+    });
+}
+
 fn emit(f: &Flow) {
     let (s, d) = (f.src.unwrap(), f.dst.unwrap());
     let req = pb::FlowFeatures {
@@ -1085,6 +1159,7 @@ async fn run_client(addr: String, mut rx: tokio::sync::mpsc::Receiver<pb::FlowFe
                     .unwrap_or("")
                     .to_string();
                 notify_slack(&src, &top_dst, &label, count, unit, avg, &first_reason);
+                notify_email(&src, &top_dst, &label, count, unit, avg, &first_reason);
             }
         }
     }
@@ -1249,6 +1324,24 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn alert_email_has_subject_and_details() {
+        let (subj, body) = email_text("192.168.1.5", "", "DDoS", 3, "flows", 0.9, "packet rate of 9000 packets/s", "2026-10-20T08:00:00Z");
+        assert_eq!(subj, "NetSpectre alert: DDoS (critical) from 192.168.1.5");
+        assert!(body.contains("Destination: unknown") && body.contains("3 flows in 10 s") && body.contains("90%"));
+        assert!(body.contains("Main reason: packet rate of 9000 packets/s") && body.contains("2026-10-20T08:00:00Z"));
+    }
+
+    #[test]
+    fn email_rate_limit_allows_max_per_hour() {
+        let mut sent = std::collections::VecDeque::new();
+        let t0 = Instant::now();
+        assert!(email_allowed(&mut sent, t0, 2));
+        assert!(email_allowed(&mut sent, t0, 2));
+        assert!(!email_allowed(&mut sent, t0, 2));
+        assert!(email_allowed(&mut sent, t0 + Duration::from_secs(3601), 2));
+    }
+
     #[test]
     fn slack_message_has_label_source_and_reason() {
         let body = slack_payload("192.168.1.5", "192.168.1.1", "PortScan", 10, "ports", 0.86, "destination port 22");

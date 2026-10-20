@@ -63,6 +63,11 @@ Settings are environment variables. Put secrets in the git-ignored `.env`; `dock
 | `NS_NTFY_SERVER` | `https://ntfy.sh` | ntfy server; point this at your own server to keep alerts off third-party infrastructure. |
 | `NS_SLACK_WEBHOOK` | empty (off) | Slack incoming webhook (`https://hooks.slack.com/services/...`). Each alert is posted to the channel with severity, source, destination, flow count, confidence and the top reason. Keep it secret: anyone with the URL can post to the channel. |
 | `NS_SLACK_MIN_SEVERITY` | `medium` | Lowest severity posted to Slack: `low`, `medium`, `high` or `critical`. |
+| `NS_SMTP_USER` / `NS_SMTP_PASS` | empty (off) | Email alerts over SMTPS (port 465). For Gmail use your address and a 16-character App Password (needs 2-Step Verification), never your normal password. |
+| `NS_SMTP_HOST` | `smtp.gmail.com` | SMTP server for email alerts. |
+| `NS_EMAIL_TO` | `NS_SMTP_USER` | Recipient of alert emails. |
+| `NS_EMAIL_MIN_SEVERITY` | `medium` | Lowest severity that sends an email. |
+| `NS_EMAIL_MAX_PER_HOUR` | `20` | Cap on alert emails per rolling hour, so an attack burst cannot flood the inbox. |
 
 Phone notifications send only the attack type, severity, source IP, flow count and confidence. The ntfy server operator can see that text, so self-host ntfy if that matters for your network.
 
