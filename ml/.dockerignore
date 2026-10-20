@@ -24,3 +24,6 @@ models/*
 !models/multiclass_xgb35_v4.json
 !models/ae35_v2.onnx
 !models/ae35_v2_meta.json
+
+!models/multiclass_xgb35_v7.onnx
+!models/multiclass_xgb35_v7.json
